@@ -148,6 +148,10 @@ def generate_signal_from_features(
     trend_slope = _safe_float(latest.get("trend_slope")) or 0.0
     price_position = _safe_float(latest.get("price_position")) or 0.0
 
+    rsi = _safe_float(latest.get("rsi"))
+    if rsi is None:
+        rsi = 50.0  # neutral default when RSI is unavailable
+
     if ma_20 > ma_50:
         signal = "BUY"
     elif ma_20 < ma_50:
@@ -165,6 +169,14 @@ def generate_signal_from_features(
 
     # Override: don't SELL if price is well above MA50 (strong uptrend)
     if signal == "SELL" and price_position > 0.05:
+        signal = "HOLD"
+
+    # Override: don't BUY if overbought (RSI > 70)
+    if signal == "BUY" and rsi > 70:
+        signal = "HOLD"
+
+    # Override: don't SELL if oversold (RSI < 30)
+    if signal == "SELL" and rsi < 30:
         signal = "HOLD"
 
     spread = abs(ma_20 - ma_50) / abs(ma_50)

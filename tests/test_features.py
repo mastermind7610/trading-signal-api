@@ -48,3 +48,15 @@ def test_rolling_volatility_calculation():
     assert features.loc[30, "rolling_volatility"] == pytest.approx(
         expected_volatility.loc[30]
     )
+
+
+def test_rsi_calculation():
+    # Strictly rising prices: no losses, so RSI saturates at 100.
+    price_data = pd.DataFrame({"Close": list(range(100, 130))})
+
+    features = build_features(price_data)
+
+    # RSI needs 14 price changes, so rows before index 14 are NaN.
+    assert pd.isna(features.loc[13, "rsi"])
+    assert features.loc[14, "rsi"] == pytest.approx(100.0)
+    assert features.loc[29, "rsi"] == pytest.approx(100.0)

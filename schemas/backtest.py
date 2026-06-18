@@ -12,3 +12,4 @@ class BacktestResponse(BaseModel):
     hold_signals: int
     cumulative_strategy_return: float
     buy_and_hold_return: float
+    sharpe_ratio: float

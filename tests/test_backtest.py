@@ -8,8 +8,30 @@ def _price_data(close_prices):
     return pd.DataFrame({"Close": close_prices})
 
 
+def _rising_series(length=90, start=100.0):
+    # Net-upward sawtooth (+2 / -1) keeps RSI moderate so the overbought
+    # override does not suppress every BUY, as a monotonic series would.
+    prices = []
+    value = start
+    for i in range(length):
+        value += 2 if i % 2 == 0 else -1
+        prices.append(value)
+    return prices
+
+
+def _falling_series(length=90, start=250.0):
+    # Net-downward sawtooth (-2 / +1) keeps RSI moderate so the oversold
+    # override does not suppress every SELL.
+    prices = []
+    value = start
+    for i in range(length):
+        value += -2 if i % 2 == 0 else 1
+        prices.append(value)
+    return prices
+
+
 def test_run_backtest_counts_buy_signals():
-    result = run_backtest("aapl", _price_data(list(range(100, 161))))
+    result = run_backtest("aapl", _price_data(_rising_series()))
 
     assert result["symbol"] == "AAPL"
     assert result["buy_signals"] > 0
@@ -17,10 +39,11 @@ def test_run_backtest_counts_buy_signals():
     assert result["hold_signals"] > 0
     assert result["cumulative_strategy_return"] > 0
     assert result["buy_and_hold_return"] > 0
+    assert result["sharpe_ratio"] > 0
 
 
 def test_run_backtest_counts_sell_signals():
-    result = run_backtest("msft", _price_data(list(range(160, 99, -1))))
+    result = run_backtest("msft", _price_data(_falling_series()))
 
     assert result["symbol"] == "MSFT"
     assert result["buy_signals"] == 0
@@ -28,6 +51,7 @@ def test_run_backtest_counts_sell_signals():
     assert result["hold_signals"] > 0
     assert result["cumulative_strategy_return"] > 0
     assert result["buy_and_hold_return"] < 0
+    assert result["sharpe_ratio"] > 0
 
 
 def test_run_backtest_counts_hold_signals_for_flat_prices():
@@ -40,6 +64,7 @@ def test_run_backtest_counts_hold_signals_for_flat_prices():
         "hold_signals": 60,
         "cumulative_strategy_return": 0.0,
         "buy_and_hold_return": 0.0,
+        "sharpe_ratio": 0.0,
     }
 
 
@@ -53,6 +78,7 @@ def test_run_backtest_handles_insufficient_data():
         "hold_signals": 0,
         "cumulative_strategy_return": 0.0,
         "buy_and_hold_return": 0.0,
+        "sharpe_ratio": 0.0,
     }
 
 

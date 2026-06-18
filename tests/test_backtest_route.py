@@ -8,8 +8,19 @@ from routes import backtest as backtest_route
 client = TestClient(app)
 
 
+def _rising_series(length=90, start=100.0):
+    # Net-upward sawtooth keeps RSI moderate so BUYs are not all suppressed by
+    # the overbought override.
+    prices = []
+    value = start
+    for i in range(length):
+        value += 2 if i % 2 == 0 else -1
+        prices.append(value)
+    return prices
+
+
 def test_post_backtest_success(monkeypatch):
-    price_data = pd.DataFrame({"Close": list(range(100, 161))})
+    price_data = pd.DataFrame({"Close": _rising_series()})
 
     monkeypatch.setattr(
         backtest_route,
@@ -28,6 +39,7 @@ def test_post_backtest_success(monkeypatch):
     assert body["hold_signals"] > 0
     assert body["cumulative_strategy_return"] > 0
     assert body["buy_and_hold_return"] > 0
+    assert body["sharpe_ratio"] > 0
 
 
 def test_post_backtest_data_error_returns_400(monkeypatch):

@@ -29,4 +29,14 @@ def build_features(price_data: pd.DataFrame) -> pd.DataFrame:
         (features["Close"] - features["ma_50"]) / features["ma_50"]
     )
 
+    # Relative Strength Index (14-day)
+    # > 70 = overbought, < 30 = oversold
+    delta = features["Close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(window=14).mean()
+    avg_loss = loss.rolling(window=14).mean()
+    rs = avg_gain / avg_loss
+    features["rsi"] = 100 - (100 / (1 + rs))
+
     return features

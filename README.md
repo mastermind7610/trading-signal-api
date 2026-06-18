@@ -24,7 +24,7 @@ schemas/
     backtest.py          — BacktestRequest, BacktestResponse
 services/
     data.py              — fetches market data via yfinance
-    features.py          — computes daily returns, moving averages, volatility, trend slope, price position
+    features.py          — computes daily returns, moving averages, volatility, trend slope, price position, RSI
     signal.py            — generates BUY/SELL/HOLD signal with confidence score
     decisions.py         — converts a signal + confidence into a position-sizing decision
     backtest.py          — walk-forward backtest, returns cumulative returns
@@ -73,7 +73,7 @@ pip install -r requirements.txt
 python -m pytest -v
 ```
 
-All 23 tests should pass. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 26 tests should pass. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -139,10 +139,11 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser.
      "sell_signals": 18,
      "hold_signals": 6,
      "cumulative_strategy_return": 0.1234,
-     "buy_and_hold_return": 0.0987
+     "buy_and_hold_return": 0.0987,
+     "sharpe_ratio": 1.35
    }
    ```
-   Returns are expressed as decimals (0.10 = 10%). The backtest runs over the last 6 months of daily data using a walk-forward approach.
+   Returns are expressed as decimals (0.10 = 10%). `sharpe_ratio` is the annualized Sharpe ratio of the daily strategy returns (risk-free rate 0.0; 0.0 when undefined). The backtest runs over the last 6 months of daily data using a walk-forward approach.
 
 ---
 
@@ -160,6 +161,10 @@ The base crossover signal is then refined by trend-aware overrides:
 
 - A **SELL** is downgraded to **HOLD** if the 50-day trend slope is still rising (> 0.01) or price sits well above the MA50 (> 5%).
 - A **BUY** is downgraded to **HOLD** if the 50-day trend slope is falling hard (< -0.01).
+- A **BUY** is downgraded to **HOLD** if RSI is overbought (> 70).
+- A **SELL** is downgraded to **HOLD** if RSI is oversold (< 30).
+
+RSI is a 14-day Relative Strength Index. When it is unavailable (insufficient history), it defaults to a neutral 50 so it never forces an override.
 
 ### Position Sizing
 
