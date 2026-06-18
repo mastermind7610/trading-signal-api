@@ -180,7 +180,7 @@ Walk-forward backtests over the last 6 months of daily data, strategy return vs.
 |--------|-----------------|---------------------|
 | NVDA   | +4.42%          | +20.76%             |
 | MSFT   | -0.90%          | -16.52%             |
-| AAPL   | _pending_       | _pending_           |
+| AAPL   | -5.14%          | +9.51%              |
 
 The strategy underperformed buy-and-hold on NVDA during a strong rally, but materially limited losses on MSFT during a drawdown — consistent with a trend-following approach that trades conservatively and sits in cash on weak signals. Past results do not guarantee future performance.
 
