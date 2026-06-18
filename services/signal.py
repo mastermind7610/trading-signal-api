@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 MIN_REQUIRED_ROWS = 50
 DEFAULT_HOLD_CONFIDENCE = 0.5
-REQUIRED_FEATURE_COLUMNS = ["Close", "ma_20", "ma_50", "rolling_volatility"]
+REQUIRED_FEATURE_COLUMNS = ["Close", "ma_20", "ma_50", "rolling_volatility", "trend_slope", "price_position"]
 
 
 def _safe_float(value: Any) -> float | None:
@@ -144,11 +144,26 @@ def generate_signal_from_features(
             log_decision=log_decision,
         )
 
+    trend_slope = _safe_float(latest.get("trend_slope")) or 0.0
+    price_position = _safe_float(latest.get("price_position")) or 0.0
+
     if ma_20 > ma_50:
         signal = "BUY"
     elif ma_20 < ma_50:
         signal = "SELL"
     else:
+        signal = "HOLD"
+
+    # Override: don't SELL if trend is still rising
+    if signal == "SELL" and trend_slope > 0.01:
+        signal = "HOLD"
+
+    # Override: don't BUY if trend is falling hard
+    if signal == "BUY" and trend_slope < -0.01:
+        signal = "HOLD"
+
+    # Override: don't SELL if price is well above MA50 (strong uptrend)
+    if signal == "SELL" and price_position > 0.05:
         signal = "HOLD"
 
     spread = abs(ma_20 - ma_50) / abs(ma_50)
