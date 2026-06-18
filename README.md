@@ -181,11 +181,11 @@ RSI is a 14-day Relative Strength Index. When it is unavailable (insufficient hi
 
 Walk-forward backtests over the last 6 months of daily data, strategy return vs. buy-and-hold:
 
-| Symbol | Strategy Return | Buy-and-Hold Return |
-|--------|-----------------|---------------------|
-| NVDA   | +4.42%          | +20.76%             |
-| MSFT   | -0.90%          | -16.52%             |
-| AAPL   | -5.14%          | +9.51%              |
+| Symbol | Strategy Return | Buy-and-Hold Return | Sharpe Ratio |
+|--------|-----------------|---------------------|--------------|
+| NVDA   | +9.11%          | +21.38%             | 0.83         |
+| MSFT   | -10.59%         | -21.25%             | -1.12        |
+| AAPL   | -7.05%          | +9.71%              | -0.89        |
 
 The strategy underperformed buy-and-hold on NVDA during a strong rally, but materially limited losses on MSFT during a drawdown — consistent with a trend-following approach that trades conservatively and sits in cash on weak signals. Past results do not guarantee future performance.
 
