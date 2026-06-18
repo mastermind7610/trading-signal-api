@@ -7,6 +7,6 @@ router = APIRouter()
 @router.post("/signal", response_model=SignalResponse)
 def get_signal(request: SignalRequest):
     try:
-        return generate_signal(request.symbol)
+        return generate_signal(request.symbol, request.portfolio_value)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

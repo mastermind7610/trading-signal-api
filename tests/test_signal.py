@@ -44,6 +44,7 @@ def test_generate_signal_hold_path(monkeypatch):
         "symbol": "SPY",
         "signal": "HOLD",
         "confidence": 0.5,
+        "decision": {"position_pct": 0.0, "position_value": 0.0},
     }
 
 
@@ -56,6 +57,7 @@ def test_generate_signal_insufficient_data_fallback(monkeypatch):
         "symbol": "TSLA",
         "signal": "HOLD",
         "confidence": 0.5,
+        "decision": {"position_pct": 0.0, "position_value": 0.0},
     }
 
 
@@ -68,6 +70,7 @@ def test_generate_signal_nan_feature_fallback(monkeypatch):
         "symbol": "NVDA",
         "signal": "HOLD",
         "confidence": 0.5,
+        "decision": {"position_pct": 0.0, "position_value": 0.0},
     }
 
 
@@ -99,4 +102,5 @@ def test_generate_signal_invalid_ma_50_fallback(monkeypatch):
         "symbol": "QQQ",
         "signal": "HOLD",
         "confidence": 0.5,
+        "decision": {"position_pct": 0.0, "position_value": 0.0},
     }

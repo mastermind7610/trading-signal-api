@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 
 from services.data import get_price_data
+from services.decisions import make_decision
 from services.features import build_features
 
 logger = logging.getLogger(__name__)
@@ -202,7 +203,7 @@ def generate_signal_from_features(
     }
 
 
-def generate_signal(symbol: str) -> dict:
+def generate_signal(symbol: str, portfolio_value: float = 10000) -> dict:
     cleaned_symbol = symbol.strip().upper()
 
     price_data = get_price_data(cleaned_symbol)
@@ -214,15 +215,17 @@ def generate_signal(symbol: str) -> dict:
             else None
         )
 
-        return _hold_response(
+        result = _hold_response(
             symbol=cleaned_symbol,
             reason="insufficient_price_history",
             latest_close=latest_close,
         )
+    else:
+        features = build_features(price_data)
+        result = generate_signal_from_features(
+            symbol=cleaned_symbol,
+            features=features,
+        )
 
-    features = build_features(price_data)
-
-    return generate_signal_from_features(
-        symbol=cleaned_symbol,
-        features=features,
-    )
+    result["decision"] = make_decision(result["signal"], result["confidence"], portfolio_value)
+    return result

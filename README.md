@@ -8,7 +8,7 @@ A paper trading signal and backtesting system built with FastAPI.
 
 ## Purpose
 
-TRADING_SIMMS generates trading signals (BUY / SELL / HOLD) based on moving average crossovers and evaluates strategy performance through historical backtesting. It is a backend-only REST API — no frontend, no database, no broker integration.
+TRADING_SIMMS generates trading signals (BUY / SELL / HOLD) based on moving average crossovers, translates each signal into a position-sizing decision for a given portfolio, and evaluates strategy performance through historical backtesting. It is a backend-only REST API — no frontend, no database, no broker integration.
 
 ---
 
@@ -24,11 +24,13 @@ schemas/
     backtest.py          — BacktestRequest, BacktestResponse
 services/
     data.py              — fetches market data via yfinance
-    features.py          — computes daily returns, moving averages, volatility
+    features.py          — computes daily returns, moving averages, volatility, trend slope, price position
     signal.py            — generates BUY/SELL/HOLD signal with confidence score
+    decisions.py         — converts a signal + confidence into a position-sizing decision
     backtest.py          — walk-forward backtest, returns cumulative returns
 tests/
     test_signal.py       — unit tests for signal generation (no live data)
+    test_decisions.py    — unit tests for position-sizing decisions
     test_backtest.py     — unit tests for backtest engine (no live data)
     test_features.py     — unit tests for feature calculations
     test_backtest_route.py — HTTP-layer tests via TestClient (no live data)
@@ -36,7 +38,7 @@ tests/
 
 **Data flow:**
 
-- `/signal`: `routes/signal` → `services/data` → `services/features` → `services/signal`
+- `/signal`: `routes/signal` → `services/data` → `services/features` → `services/signal` → `services/decisions`
 - `/backtest`: `routes/backtest` → `services/data` → `services/backtest` (which calls `services/features` and `services/signal` internally)
 
 ---
@@ -71,7 +73,7 @@ pip install -r requirements.txt
 python -m pytest -v
 ```
 
-All 17 tests should pass. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 23 tests should pass. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -102,9 +104,9 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser.
 ### Test /signal
 
 1. Click **POST /signal** → **Try it out**
-2. Enter request body:
+2. Enter request body (`portfolio_value` is optional and defaults to 10000):
    ```json
-   { "symbol": "AAPL" }
+   { "symbol": "AAPL", "portfolio_value": 10000 }
    ```
 3. Click **Execute**
 4. Expected response:
@@ -112,10 +114,14 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser.
    {
      "symbol": "AAPL",
      "signal": "BUY",
-     "confidence": 0.72
+     "confidence": 0.72,
+     "decision": {
+       "position_pct": 0.0489,
+       "position_value": 489.0
+     }
    }
    ```
-   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95.
+   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95. The `decision` block sizes a position from the confidence score: `position_pct` is the fraction of the portfolio to allocate (capped at 10%), and `position_value` is that fraction applied to `portfolio_value`.
 
 ### Test /backtest
 
@@ -149,6 +155,34 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser.
 | 20-day MA == 50-day MA | HOLD |
 
 Confidence is penalized by rolling volatility and capped between 0.5 and 0.95. If data is insufficient (fewer than 50 trading days) or features contain NaN values, the system falls back to HOLD with confidence 0.5.
+
+The base crossover signal is then refined by trend-aware overrides:
+
+- A **SELL** is downgraded to **HOLD** if the 50-day trend slope is still rising (> 0.01) or price sits well above the MA50 (> 5%).
+- A **BUY** is downgraded to **HOLD** if the 50-day trend slope is falling hard (< -0.01).
+
+### Position Sizing
+
+`services/decisions.py` turns each signal into a position-sizing decision:
+
+- **HOLD** → `position_pct = 0.0` (no allocation).
+- **BUY / SELL** → confidence is rescaled from its [0.5, 0.95] range to [0, 1] and applied to a maximum allocation of **10%** of the portfolio.
+
+`position_value` is `position_pct × portfolio_value`, rounded to cents.
+
+---
+
+## Backtest Results
+
+Walk-forward backtests over the last 6 months of daily data, strategy return vs. buy-and-hold:
+
+| Symbol | Strategy Return | Buy-and-Hold Return |
+|--------|-----------------|---------------------|
+| NVDA   | +4.42%          | +20.76%             |
+| MSFT   | -0.90%          | -16.52%             |
+| AAPL   | _pending_       | _pending_           |
+
+The strategy underperformed buy-and-hold on NVDA during a strong rally, but materially limited losses on MSFT during a drawdown — consistent with a trend-following approach that trades conservatively and sits in cash on weak signals. Past results do not guarantee future performance.
 
 ---
 
