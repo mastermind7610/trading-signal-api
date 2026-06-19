@@ -1,0 +1,47 @@
+name: Deploy to Azure Container Apps
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:        # lets you trigger a deploy manually from the Actions tab
+
+env:
+  IMAGE: ${{ secrets.REGISTRY }}/trading-simms:${{ github.sha }}
+  APP_NAME: trading-simms
+  RESOURCE_GROUP: trading-simms-rg
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Log Docker into your Azure Container Registry using the admin creds
+      - name: Log in to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # Build the image ON the GitHub runner (NOT ACR Tasks, which the
+      # student subscription blocks) and push it, tagged with the commit SHA
+      - name: Build and push image
+        run: |
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      # Authenticate the Azure CLI with the service principal
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # Point the existing container app at the new image
+      - name: Update container app
+        run: |
+          az containerapp update \
+            --name $APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --image $IMAGE
