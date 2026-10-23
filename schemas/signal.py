@@ -16,3 +16,6 @@ class SignalResponse(BaseModel):
     signal: str
     confidence: float
     decision: Decision
+    macd_line: float | None = None
+    signal_line: float | None = None
+    histogram: float | None = None

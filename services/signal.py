@@ -23,6 +23,16 @@ def _safe_float(value: Any) -> float | None:
     return float(value)
 
 
+def _latest_macd(row: Any) -> dict:
+    # Reads the compute_macd output that build_features already stored on the
+    # row; NaN (thin history) or absent columns come back as None.
+    return {
+        "macd_line": _safe_float(row.get("macd")),
+        "signal_line": _safe_float(row.get("macd_signal")),
+        "histogram": _safe_float(row.get("macd_histogram")),
+    }
+
+
 def _log_signal_decision(
     symbol: str,
     latest_close: float | None,
@@ -58,6 +68,7 @@ def _hold_response(
     ma_20: float | None = None,
     ma_50: float | None = None,
     rolling_volatility: float | None = None,
+    macd: dict | None = None,
     log_decision: bool = True,
 ) -> dict:
     if log_decision:
@@ -76,6 +87,7 @@ def _hold_response(
         "symbol": symbol,
         "signal": "HOLD",
         "confidence": DEFAULT_HOLD_CONFIDENCE,
+        **(macd or _latest_macd({})),
     }
 
 
@@ -118,6 +130,7 @@ def generate_signal_from_features(
             ma_20=_safe_float(latest_row.get("ma_20")),
             ma_50=_safe_float(latest_row.get("ma_50")),
             rolling_volatility=_safe_float(latest_row.get("rolling_volatility")),
+            macd=_latest_macd(latest_row),
             log_decision=log_decision,
         )
 
@@ -127,6 +140,7 @@ def generate_signal_from_features(
     ma_20 = _safe_float(latest["ma_20"])
     ma_50 = _safe_float(latest["ma_50"])
     rolling_volatility = _safe_float(latest["rolling_volatility"])
+    macd = _latest_macd(latest)
 
     if (
         latest_close is None
@@ -142,6 +156,7 @@ def generate_signal_from_features(
             ma_20=ma_20,
             ma_50=ma_50,
             rolling_volatility=rolling_volatility,
+            macd=macd,
             log_decision=log_decision,
         )
 
@@ -152,7 +167,7 @@ def generate_signal_from_features(
     if rsi is None:
         rsi = 50.0  # neutral default when RSI is unavailable
 
-    macd_histogram = _safe_float(latest.get("macd_histogram"))
+    macd_histogram = macd["histogram"]
     if macd_histogram is None:
         macd_histogram = 0.0  # neutral default when MACD is unavailable
 
@@ -207,6 +222,7 @@ def generate_signal_from_features(
             ma_20=ma_20,
             ma_50=ma_50,
             rolling_volatility=rolling_volatility,
+            macd=macd,
             log_decision=log_decision,
         )
 
@@ -226,6 +242,7 @@ def generate_signal_from_features(
         "symbol": cleaned_symbol,
         "signal": signal,
         "confidence": confidence,
+        **macd,
     }
 
 
