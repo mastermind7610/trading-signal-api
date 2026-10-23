@@ -1,6 +1,45 @@
 import pandas as pd
 
 
+def compute_macd(
+    close: pd.Series,
+    fast: int = 12,
+    slow: int = 26,
+    signal: int = 9,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """
+    Compute the MACD line, signal line, and histogram for a close-price series.
+
+        macd_line   = EMA(fast) - EMA(slow)
+        signal_line = EMA(signal) of the macd_line
+        histogram   = macd_line - signal_line
+
+    NaN-safe for thin history, mirroring how the RSI feature's rolling window
+    yields NaN until it has enough data: an EMA seeded on only a handful of
+    points is misleading, so rows without enough history are returned as NaN
+    rather than a noisy seed value. The MACD line needs the slow span; the
+    signal line (and therefore the histogram) needs the slow span plus the
+    signal span on top of it.
+    """
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+
+    # Mask thin-history rows only after the full recursion has run, so the
+    # populated rows keep their exact values.
+    observations = close.notna().cumsum()
+    enough_for_macd = observations >= slow
+    enough_for_signal = observations >= slow + signal - 1
+
+    macd_line = macd_line.where(enough_for_macd)
+    signal_line = signal_line.where(enough_for_signal)
+    histogram = histogram.where(enough_for_signal)
+
+    return macd_line, signal_line, histogram
+
+
 def build_features(price_data: pd.DataFrame) -> pd.DataFrame:
     """
     Takes raw OHLCV price data and returns a DataFrame with computed indicators.
@@ -38,5 +77,12 @@ def build_features(price_data: pd.DataFrame) -> pd.DataFrame:
     avg_loss = loss.rolling(window=14).mean()
     rs = avg_gain / avg_loss
     features["rsi"] = 100 - (100 / (1 + rs))
+
+    # Moving Average Convergence Divergence (MACD, 12/26/9)
+    # histogram > 0 = bullish momentum, < 0 = bearish momentum.
+    macd_line, signal_line, histogram = compute_macd(features["Close"])
+    features["macd"] = macd_line
+    features["macd_signal"] = signal_line
+    features["macd_histogram"] = histogram
 
     return features

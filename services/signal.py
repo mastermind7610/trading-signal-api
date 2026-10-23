@@ -152,6 +152,10 @@ def generate_signal_from_features(
     if rsi is None:
         rsi = 50.0  # neutral default when RSI is unavailable
 
+    macd_histogram = _safe_float(latest.get("macd_histogram"))
+    if macd_histogram is None:
+        macd_histogram = 0.0  # neutral default when MACD is unavailable
+
     if ma_20 > ma_50:
         signal = "BUY"
     elif ma_20 < ma_50:
@@ -177,6 +181,16 @@ def generate_signal_from_features(
 
     # Override: don't SELL if oversold (RSI < 30)
     if signal == "SELL" and rsi < 30:
+        signal = "HOLD"
+
+    # Override: don't BUY if MACD momentum disagrees with the crossover
+    # (negative histogram = MACD line below its signal line = bearish momentum)
+    if signal == "BUY" and macd_histogram < 0:
+        signal = "HOLD"
+
+    # Override: don't SELL if MACD momentum disagrees with the crossover
+    # (positive histogram = MACD line above its signal line = bullish momentum)
+    if signal == "SELL" and macd_histogram > 0:
         signal = "HOLD"
 
     spread = abs(ma_20 - ma_50) / abs(ma_50)

@@ -15,9 +15,11 @@ def _mock_price_data(monkeypatch, close_prices):
     )
 
 
-def _rising_series(length=90, start=100.0):
+def _rising_series(length=89, start=100.0):
     # Net-upward sawtooth (+2 / -1) so the RSI stays moderate (~67) and does
     # not trip the overbought override, unlike a strictly monotonic series.
+    # An odd length ends on an up-tick so the MACD histogram is positive,
+    # i.e. momentum confirms the uptrend and the BUY override does not fire.
     prices = []
     value = start
     for i in range(length):
@@ -26,9 +28,11 @@ def _rising_series(length=90, start=100.0):
     return prices
 
 
-def _falling_series(length=90, start=250.0):
+def _falling_series(length=89, start=250.0):
     # Net-downward sawtooth (-2 / +1) so the RSI stays moderate (~33) and does
-    # not trip the oversold override.
+    # not trip the oversold override. An odd length ends on a down-tick so the
+    # MACD histogram is negative, i.e. momentum confirms the downtrend and the
+    # SELL override does not fire.
     prices = []
     value = start
     for i in range(length):
@@ -108,6 +112,93 @@ def test_generate_signal_rsi_oversold_downgrades_sell(monkeypatch):
     result = signal_service.generate_signal("msft")
 
     assert result["signal"] == "HOLD"
+
+
+def test_generate_signal_macd_disagreement_downgrades_buy(monkeypatch):
+    # ma_20 > ma_50 would be BUY, but a negative MACD histogram (bearish
+    # momentum) disagrees with the crossover and forces HOLD.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [150.0],
+            "ma_20": [140.0],
+            "ma_50": [120.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.0],
+            "rsi": [50.0],
+            "macd_histogram": [-0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "HOLD"
+
+
+def test_generate_signal_macd_disagreement_downgrades_sell(monkeypatch):
+    # ma_20 < ma_50 would be SELL, but a positive MACD histogram (bullish
+    # momentum) disagrees with the crossover and forces HOLD.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [110.0],
+            "ma_20": [120.0],
+            "ma_50": [140.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [-0.2],
+            "rsi": [50.0],
+            "macd_histogram": [0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("msft")
+
+    assert result["signal"] == "HOLD"
+
+
+def test_generate_signal_macd_agreement_keeps_buy(monkeypatch):
+    # A positive MACD histogram agrees with the bullish crossover, so the
+    # BUY stands.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [150.0],
+            "ma_20": [140.0],
+            "ma_50": [120.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.0],
+            "rsi": [50.0],
+            "macd_histogram": [0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "BUY"
+
+
+def test_generate_signal_missing_macd_keeps_buy(monkeypatch):
+    # MACD is optional: when the histogram is absent the neutral default
+    # leaves the crossover signal untouched.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [150.0],
+            "ma_20": [140.0],
+            "ma_50": [120.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.0],
+            "rsi": [50.0],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "BUY"
 
 
 def test_generate_signal_hold_path(monkeypatch):

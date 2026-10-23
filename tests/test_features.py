@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from services.features import build_features
+from services.features import build_features, compute_macd
 
 
 def test_daily_return_calculation():
@@ -60,3 +60,87 @@ def test_rsi_calculation():
     assert pd.isna(features.loc[13, "rsi"])
     assert features.loc[14, "rsi"] == pytest.approx(100.0)
     assert features.loc[29, "rsi"] == pytest.approx(100.0)
+
+
+def test_macd_calculation():
+    price_data = pd.DataFrame({"Close": list(range(100, 160))})
+
+    # Recompute the reference MACD with the same EMA definition.
+    close = price_data["Close"]
+    expected_macd = (
+        close.ewm(span=12, adjust=False).mean()
+        - close.ewm(span=26, adjust=False).mean()
+    )
+    expected_signal = expected_macd.ewm(span=9, adjust=False).mean()
+    expected_histogram = expected_macd - expected_signal
+
+    features = build_features(price_data)
+
+    assert features.loc[59, "macd"] == pytest.approx(expected_macd.loc[59])
+    assert features.loc[59, "macd_signal"] == pytest.approx(expected_signal.loc[59])
+    assert features.loc[59, "macd_histogram"] == pytest.approx(
+        expected_histogram.loc[59]
+    )
+
+
+def test_macd_histogram_positive_when_rising():
+    # A steady uptrend pushes the fast EMA above the slow EMA and keeps the
+    # MACD line above its signal line, so the histogram is positive (bullish).
+    price_data = pd.DataFrame({"Close": list(range(100, 160))})
+
+    features = build_features(price_data)
+
+    assert features.loc[59, "macd_histogram"] > 0
+
+
+def test_macd_histogram_negative_when_falling():
+    # A steady downtrend drags the MACD line below its signal line, so the
+    # histogram turns negative (bearish momentum).
+    price_data = pd.DataFrame({"Close": list(range(160, 100, -1))})
+
+    features = build_features(price_data)
+
+    assert features.loc[59, "macd_histogram"] < 0
+
+
+def test_compute_macd_returns_line_signal_histogram():
+    # On a populated row all three series agree with histogram = line - signal.
+    close = pd.Series(range(100, 160), dtype=float)
+
+    macd_line, signal_line, histogram = compute_macd(close)
+
+    expected_line = (
+        close.ewm(span=12, adjust=False).mean()
+        - close.ewm(span=26, adjust=False).mean()
+    )
+    expected_signal = expected_line.ewm(span=9, adjust=False).mean()
+
+    assert macd_line.iloc[-1] == pytest.approx(expected_line.iloc[-1])
+    assert signal_line.iloc[-1] == pytest.approx(expected_signal.iloc[-1])
+    assert histogram.iloc[-1] == pytest.approx(
+        macd_line.iloc[-1] - signal_line.iloc[-1]
+    )
+
+
+def test_compute_macd_is_nan_safe_for_thin_history():
+    # Fewer rows than the 26-period slow EMA: like the RSI rolling window on
+    # thin data, MACD is NaN rather than a misleading EMA seed.
+    close = pd.Series(range(10), dtype=float)
+
+    macd_line, signal_line, histogram = compute_macd(close)
+
+    assert macd_line.isna().all()
+    assert signal_line.isna().all()
+    assert histogram.isna().all()
+
+
+def test_compute_macd_signal_needs_more_history_than_line():
+    # Enough rows for the slow EMA (>= 26) but not yet the signal EMA: the MACD
+    # line is populated while the signal line and histogram stay NaN.
+    close = pd.Series(range(30), dtype=float)
+
+    macd_line, signal_line, histogram = compute_macd(close)
+
+    assert not pd.isna(macd_line.iloc[-1])
+    assert pd.isna(signal_line.iloc[-1])
+    assert pd.isna(histogram.iloc[-1])
