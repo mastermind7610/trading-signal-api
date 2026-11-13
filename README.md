@@ -78,7 +78,7 @@ pip install -r requirements.txt
 python -m pytest -v
 ```
 
-All 95 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 98 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 

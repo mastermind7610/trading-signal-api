@@ -377,6 +377,51 @@ def test_generate_signal_nan_feature_fallback(monkeypatch):
     }
 
 
+def test_generate_signal_uses_latest_row_when_it_is_complete(monkeypatch):
+    # Two complete rows: the older one would be a SELL, the latest is a BUY.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [97.0, 103.0],
+            "ma_20": [98.0, 102.0],
+            "ma_50": [100.0, 100.0],
+            "rolling_volatility": [0.01, 0.01],
+            "trend_slope": [0.0, 0.0],
+            "price_position": [-0.03, 0.03],
+            "rsi": [45.0, 55.0],
+            "macd_histogram": [-0.5, 0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "BUY"
+    assert result["confidence"] == 0.8
+
+
+def test_generate_signal_falls_back_to_last_complete_row(monkeypatch):
+    # The latest row is missing required features, so the signal comes from
+    # the most recent row that has them all.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [103.0, 104.0],
+            "ma_20": [102.0, 103.0],
+            "ma_50": [100.0, float("nan")],
+            "rolling_volatility": [0.01, 0.01],
+            "trend_slope": [0.0, 0.0],
+            "price_position": [0.03, float("nan")],
+            "rsi": [55.0, 56.0],
+            "macd_histogram": [0.5, 0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "BUY"
+    assert result["confidence"] == 0.8
+
+
 # compute_confidence measures the gap between the moving averages in units of
 # daily volatility and maps it linearly onto [0.5, 0.95], reaching 0.95 once
 # the gap is FULL_CONFIDENCE_STRENGTH (3) daily standard deviations wide.

@@ -102,9 +102,15 @@ def run_backtest(
     held = 0.0  # fraction of the portfolio currently in the stock
 
     for index in range(start, len(features) - 1):
+        # Only this day's row is needed. From `start` on, every row has all
+        # required features (NaNs occur only during warm-up, because rows
+        # without Open/Close were dropped before the features were built),
+        # so the signal function's "latest complete row" is this row.
+        # Passing the whole history so far gave identical signals at O(n)
+        # cost per day.
         signal_result = generate_signal_from_features(
             cleaned_symbol,
-            features.iloc[: index + 1],
+            features.iloc[index : index + 1],
             log_decision=False,
         )
         signal = signal_result["signal"]

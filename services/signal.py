@@ -39,6 +39,27 @@ def _latest_macd(row: Any) -> dict:
     }
 
 
+def _latest_complete_row(features: pd.DataFrame) -> pd.Series | None:
+    """The most recent row with every required feature present, or None.
+
+    On a normal call the last row is complete, so check it directly before
+    falling back to a full dropna scan. The scan costs about 0.7 ms per
+    call, which was three quarters of the backtest's per-day cost.
+    """
+    if features.empty:
+        return None
+
+    last = features.iloc[-1]
+    if not last[REQUIRED_FEATURE_COLUMNS].isna().any():
+        return last
+
+    complete = features.dropna(subset=REQUIRED_FEATURE_COLUMNS)
+    if complete.empty:
+        return None
+
+    return complete.iloc[-1]
+
+
 def compute_confidence(ma_20: float, ma_50: float, rolling_volatility: float) -> float:
     """Confidence in a crossover, in [CONFIDENCE_MIN, CONFIDENCE_MAX].
 
@@ -158,9 +179,9 @@ def generate_signal_from_features(
             log_decision=log_decision,
         )
 
-    latest_features = features.dropna(subset=REQUIRED_FEATURE_COLUMNS).tail(1)
+    latest = _latest_complete_row(features)
 
-    if latest_features.empty:
+    if latest is None:
         latest_row = features.tail(1).iloc[0] if not features.empty else {}
 
         return _hold_response(
@@ -173,8 +194,6 @@ def generate_signal_from_features(
             macd=_latest_macd(latest_row),
             log_decision=log_decision,
         )
-
-    latest = latest_features.iloc[0]
 
     latest_close = _safe_float(latest["Close"])
     ma_20 = _safe_float(latest["ma_20"])

@@ -1,10 +1,13 @@
 import math
+import random
 
 import pandas as pd
 import pytest
 
 from services import backtest as backtest_service
 from services.backtest import run_backtest
+from services.features import build_features
+from services.signal import REQUIRED_FEATURE_COLUMNS
 
 # With flat prices, rows 0-53 are indicator warm-up and row 54 is the first
 # day a signal can be computed.
@@ -78,6 +81,50 @@ def test_run_backtest_counts_buy_signals():
     assert math.isfinite(result["sharpe_ratio"])
     # Position size follows confidence, so BUY days put real money to work.
     assert result["average_exposure"] > 0
+
+
+def _random_walk(length=260, start=100.0, seed=0):
+    # Deterministic noisy series with realistic daily moves, so both signal
+    # directions and the overrides all get exercised.
+    rng = random.Random(seed)
+    prices = []
+    value = start
+    for _ in range(length):
+        value *= 1 + rng.gauss(0.0005, 0.015)
+        prices.append(round(value, 2))
+    return prices
+
+
+def test_run_backtest_evaluates_each_day_from_its_own_row(monkeypatch):
+    # The engine hands the signal function one row per day instead of the
+    # whole history so far. That must not change a single signal: from the
+    # first tradeable row on, every row has all required features, so the
+    # "latest complete row" of the full history is that same row.
+    price_data = _price_data(_random_walk())
+    real = backtest_service.generate_signal_from_features
+    seen = []
+
+    def recording(symbol, features, log_decision=True):
+        result = real(symbol, features, log_decision=log_decision)
+        seen.append((len(features), result))
+        return result
+
+    monkeypatch.setattr(backtest_service, "generate_signal_from_features", recording)
+
+    result = run_backtest("aapl", price_data)
+
+    features = build_features(price_data)
+    tradeable = features[REQUIRED_FEATURE_COLUMNS].notna().all(axis=1).to_numpy()
+    start = int(tradeable.argmax())
+    expected = [
+        real("AAPL", features.iloc[: index + 1], log_decision=False)
+        for index in range(start, len(features) - 1)
+    ]
+
+    assert all(rows == 1 for rows, _ in seen)
+    assert [signal for _, signal in seen] == expected
+    assert len({signal["signal"] for signal in expected}) >= 2
+    assert result["buy_signals"] + result["sell_signals"] + result["hold_signals"] == len(expected)
 
 
 def test_run_backtest_counts_sell_signals():
