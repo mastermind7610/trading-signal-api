@@ -27,3 +27,34 @@ class SymbolRequest(BaseModel):
         if isinstance(value, str):
             return value.strip().upper()
         return value
+
+
+class ErrorResponse(BaseModel):
+    """Body of the 400, 404 and 503 errors the service raises itself."""
+
+    detail: str = Field(
+        description="What went wrong.",
+        examples=["No price data found for symbol: XYZ"],
+    )
+
+
+class HealthResponse(BaseModel):
+    status: str = Field(examples=["ok"])
+    version: str = Field(description="Deployed API version.", examples=["1.0.0"])
+
+
+# Documented on every route that fetches prices. 422 is added by FastAPI.
+MARKET_DATA_ERROR_RESPONSES = {
+    400: {"model": ErrorResponse, "description": "The request could not be processed."},
+    404: {
+        "model": ErrorResponse,
+        "description": (
+            "Yahoo Finance returned no price data for the symbol. This also "
+            "happens when Yahoo rate-limits requests."
+        ),
+    },
+    503: {
+        "model": ErrorResponse,
+        "description": "Yahoo Finance could not be reached. Retry after the `Retry-After` delay.",
+    },
+}

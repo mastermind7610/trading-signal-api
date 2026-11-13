@@ -37,6 +37,7 @@ tests/
     test_backtest_route.py — HTTP-layer tests via TestClient (no live data)
     test_validation.py   — request validation for both endpoints (no live data)
     test_data.py         — unit tests for the data fetch and its error translation (no live data)
+    test_api_metadata.py — /health and the generated OpenAPI document
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
 requirements.txt         — runtime dependencies, exact pins (what the Docker image installs)
@@ -86,7 +87,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 98 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 103 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -115,7 +116,7 @@ The image is built on `python:3.13.3-slim`, installs only `requirements.txt` (no
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Health check |
+| GET | `/health` | Health check; returns `{"status": "ok", "version": "..."}` |
 | POST | `/signal` | Generate a trading signal for a symbol |
 | POST | `/backtest` | Run a historical backtest for a symbol |
 
@@ -127,7 +128,7 @@ When Yahoo Finance returns no rows for a symbol the API returns `404` with `No p
 
 ## Testing with Swagger UI
 
-Start the server, then open `http://127.0.0.1:8000/docs` in your browser.
+Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The docs carry a description of each endpoint, example requests and responses, and the error responses (`404`, `422`, `503`) with their shape.
 
 ### Test /signal
 
