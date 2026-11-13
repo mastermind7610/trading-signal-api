@@ -2,11 +2,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from schemas.common import SymbolRequest
 from services.backtest import DEFAULT_TRADING_COST_PCT
 
 
-class BacktestRequest(BaseModel):
-    symbol: str
+class BacktestRequest(SymbolRequest):
     # How much daily history to fetch. The first ~54 trading days are
     # indicator warm-up, so short periods leave very few days to test.
     period: Literal["6mo", "1y", "2y", "5y", "10y"] = "5y"

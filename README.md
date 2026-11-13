@@ -20,6 +20,7 @@ routes/
     signal.py            — POST /signal  (HTTP in/out only)
     backtest.py          — POST /backtest (HTTP in/out only)
 schemas/
+    common.py            — SymbolRequest: symbol validation shared by both requests
     signal.py            — SignalRequest, SignalResponse
     backtest.py          — BacktestRequest, BacktestResponse
 services/
@@ -34,6 +35,7 @@ tests/
     test_backtest.py     — unit tests for backtest engine (no live data)
     test_features.py     — unit tests for feature calculations
     test_backtest_route.py — HTTP-layer tests via TestClient (no live data)
+    test_validation.py   — request validation for both endpoints (no live data)
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
 ```
@@ -96,6 +98,8 @@ The server starts at `http://127.0.0.1:8000`.
 | GET | `/health` | Health check |
 | POST | `/signal` | Generate a trading signal for a symbol |
 | POST | `/backtest` | Run a historical backtest for a symbol |
+
+**Input validation.** `symbol` must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
 
 ---
 
