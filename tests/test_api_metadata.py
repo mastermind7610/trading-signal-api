@@ -39,7 +39,7 @@ def test_openapi_documents_error_responses():
 
     for path in ("/signal", "/backtest"):
         responses = schema["paths"][path]["post"]["responses"]
-        for status in ("200", "404", "422", "503"):
+        for status in ("200", "401", "404", "422", "503"):
             assert status in responses, (path, status)
         error_ref = responses["404"]["content"]["application/json"]["schema"]["$ref"]
         assert error_ref.endswith("/ErrorResponse")

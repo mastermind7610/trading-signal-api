@@ -30,7 +30,7 @@ class SymbolRequest(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Body of the 400, 404 and 503 errors the service raises itself."""
+    """Body of the 400, 401, 404 and 503 errors the service raises itself."""
 
     detail: str = Field(
         description="What went wrong.",
@@ -46,6 +46,7 @@ class HealthResponse(BaseModel):
 # Documented on every route that fetches prices. 422 is added by FastAPI.
 MARKET_DATA_ERROR_RESPONSES = {
     400: {"model": ErrorResponse, "description": "The request could not be processed."},
+    401: {"model": ErrorResponse, "description": "Missing or invalid `X-API-Key` header."},
     404: {
         "model": ErrorResponse,
         "description": (
@@ -55,6 +56,9 @@ MARKET_DATA_ERROR_RESPONSES = {
     },
     503: {
         "model": ErrorResponse,
-        "description": "Yahoo Finance could not be reached. Retry after the `Retry-After` delay.",
+        "description": (
+            "Yahoo Finance could not be reached (retry after the `Retry-After` "
+            "delay), or no API key is configured on the server."
+        ),
     },
 }

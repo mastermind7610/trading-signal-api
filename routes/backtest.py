@@ -1,11 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from routes.auth import require_api_key
 from schemas.backtest import BacktestRequest, BacktestResponse
 from schemas.common import MARKET_DATA_ERROR_RESPONSES
 from services.backtest import run_backtest
 from services.data import get_price_data
 
-router = APIRouter(tags=["backtests"])
+router = APIRouter(tags=["backtests"], dependencies=[Depends(require_api_key)])
 
 
 @router.post(

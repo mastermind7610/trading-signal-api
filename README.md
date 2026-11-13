@@ -19,6 +19,7 @@ main.py                  — FastAPI app, router registration, error handlers, /
 routes/
     signal.py            — POST /signal  (HTTP in/out only)
     backtest.py          — POST /backtest (HTTP in/out only)
+    auth.py              — X-API-Key check applied to both routes
 schemas/
     common.py            — SymbolRequest: symbol validation shared by both requests
     signal.py            — SignalRequest, SignalResponse
@@ -38,6 +39,8 @@ tests/
     test_validation.py   — request validation for both endpoints (no live data)
     test_data.py         — unit tests for the data fetch and its error translation (no live data)
     test_api_metadata.py — /health and the generated OpenAPI document
+    test_auth.py         — API key check as deployed: 401, 503 when unconfigured, public routes
+    conftest.py          — switches the API key check off for every other test
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
 requirements.txt         — runtime dependencies, exact pins (what the Docker image installs)
@@ -87,7 +90,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 103 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 121 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -97,7 +100,57 @@ All 103 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m
 uvicorn main:app --reload
 ```
 
-The server starts at `http://127.0.0.1:8000`.
+The server starts at `http://127.0.0.1:8000`. `/signal` and `/backtest` answer `503` until an API key is configured: see [Authentication](#authentication) for the one-line setup.
+
+---
+
+## Authentication
+
+`/signal` and `/backtest` require an API key in the `X-API-Key` header. `/health`, `/docs` and `/openapi.json` are public.
+
+The server reads the accepted key from the `API_KEY` environment variable. It **fails closed**: if `API_KEY` is not set, both endpoints answer `503` rather than running open. A missing or wrong key gets `401`.
+
+### Running locally with a key
+
+Pick any value for local use and set it before starting the server.
+
+**Windows (PowerShell):**
+```powershell
+$env:API_KEY = "<your-local-key>"
+uvicorn main:app --reload
+```
+
+**macOS / Linux:**
+```bash
+API_KEY="<your-local-key>" uvicorn main:app --reload
+```
+
+Then send the same value with each request:
+
+```bash
+curl -X POST http://127.0.0.1:8000/signal \
+  -H "X-API-Key: <your-local-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "AAPL"}'
+```
+
+In Swagger UI, click **Authorize**, enter the key once, and every "Try it out" call carries it. The test suite needs no key: it switches the check off, except for `tests/test_auth.py`, which exercises it as deployed.
+
+### Setting the key on Azure Container Apps
+
+Generate a long random value, store it as a Container Apps secret and expose it to the app as `API_KEY`. Do this once, **before** deploying a version that requires the key:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+az containerapp secret set --name trading-simms --resource-group trading-simms-rg --secrets api-key=<value>
+az containerapp update --name trading-simms --resource-group trading-simms-rg --set-env-vars API_KEY=secretref:api-key
+```
+
+The secret and the variable persist across revisions, so the deploy workflow needs no change and the key never passes through GitHub. To rotate without downtime, set `API_KEY` to `old,new` (comma-separated values are all accepted), move clients to the new key, then set it to `new` alone.
+
+### Rate limiting (out of scope)
+
+There is no rate limiter. An in-process one would count per replica, reset on every deploy and share no state, so it would not stop real abuse. With one authenticated consumer, the response to a misbehaving or leaked key is to rotate it. Each upstream request is bounded by a 10-second timeout. A public deployment should enforce limits at the edge, for example with Azure API Management or Front Door.
 
 ---
 
@@ -105,7 +158,7 @@ The server starts at `http://127.0.0.1:8000`.
 
 ```bash
 docker build -t trading-simms .
-docker run --rm -p 8000:8000 trading-simms
+docker run --rm -p 8000:8000 -e API_KEY="<your-local-key>" trading-simms
 ```
 
 The image is built on `python:3.13.3-slim`, installs only `requirements.txt` (no test tools), copies only `main.py`, `routes/`, `schemas/` and `services/`, and runs uvicorn as an unprivileged user (`app`, UID 10001). It needs outbound internet access to reach Yahoo Finance.
@@ -122,13 +175,13 @@ The image is built on `python:3.13.3-slim`, installs only `requirements.txt` (no
 
 **Input validation and errors.** `symbol` must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
 
-When Yahoo Finance returns no rows for a symbol the API returns `404` with `No price data found for symbol: X`. This also happens when Yahoo rate-limits requests, so it does not always mean the symbol is unknown. When Yahoo Finance cannot be reached or fails, the API returns `503` with a `Retry-After` header. Each request to Yahoo times out after 10 seconds.
+When Yahoo Finance returns no rows for a symbol the API returns `404` with `No price data found for symbol: X`. This also happens when Yahoo rate-limits requests, so it does not always mean the symbol is unknown. When Yahoo Finance cannot be reached or fails, the API returns `503` with a `Retry-After` header. Each request to Yahoo times out after 10 seconds. A missing or wrong API key returns `401`.
 
 ---
 
 ## Testing with Swagger UI
 
-Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The docs carry a description of each endpoint, example requests and responses, and the error responses (`404`, `422`, `503`) with their shape.
+Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The docs carry a description of each endpoint, example requests and responses, and the error responses (`401`, `404`, `422`, `503`) with their shape. Click **Authorize** and enter your API key before trying `/signal` or `/backtest` (see [Authentication](#authentication)).
 
 ### Test /signal
 

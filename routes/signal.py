@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from routes.auth import require_api_key
 from schemas.common import MARKET_DATA_ERROR_RESPONSES
 from schemas.signal import SignalRequest, SignalResponse
 from services.signal import generate_signal
 
-router = APIRouter(tags=["signals"])
+router = APIRouter(tags=["signals"], dependencies=[Depends(require_api_key)])
 
 
 @router.post(

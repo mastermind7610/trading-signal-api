@@ -1,14 +1,19 @@
+import logging
 import math
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from routes.auth import API_KEY_ENV_VAR, configured_api_keys
 from routes.backtest import router as backtest_router
 from routes.signal import router as signal_router
 from schemas.common import HealthResponse
 from services.data import MarketDataUnavailableError, NoPriceDataError
+
+logger = logging.getLogger(__name__)
 
 # Single source of the API version: shown in the OpenAPI docs and returned by
 # /health, so a deploy can be checked with one call.
@@ -28,9 +33,12 @@ orders and connects to no broker.**
   strategy with next-day fills and trading costs, and compares it with
   buy-and-hold.
 
+`/signal` and `/backtest` require an `X-API-Key` header; use **Authorize** to
+set it here. `/health` and these docs are public.
+
 Prices come from Yahoo Finance. Errors use a single shape, `{"detail": "..."}`:
-`404` when no price data is found for the symbol, `422` for invalid input and
-`503` when Yahoo Finance cannot be reached.
+`401` for a missing or wrong key, `404` when no price data is found for the
+symbol, `422` for invalid input and `503` when Yahoo Finance cannot be reached.
 """
 
 OPENAPI_TAGS = [
@@ -39,12 +47,25 @@ OPENAPI_TAGS = [
     {"name": "health", "description": "Liveness and deployed version."},
 ]
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Requests are refused without a configured key (see routes/auth.py); say so
+    # once at startup rather than leaving it to be discovered from 503s.
+    if not configured_api_keys():
+        logger.error(
+            "%s is not set: /signal and /backtest will answer 503 until it is.",
+            API_KEY_ENV_VAR,
+        )
+    yield
+
+
 app = FastAPI(
     title="TRADING_SIMMS",
     summary="Paper-trading signal and backtesting API.",
     description=API_DESCRIPTION,
     version=API_VERSION,
     openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
 )
 
 app.include_router(signal_router)
