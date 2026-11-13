@@ -66,9 +66,13 @@ source .venv/bin/activate
 
 ### 2. Install dependencies
 
+For development and running the tests:
+
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
+
+`requirements.txt` holds the runtime dependencies with exact version pins and is what the Docker image installs. `requirements-dev.txt` adds pytest and httpx (FastAPI's test client needs it) on top of it.
 
 ---
 
