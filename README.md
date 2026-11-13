@@ -15,7 +15,7 @@ TRADING_SIMMS generates trading signals (BUY / SELL / HOLD) from a 20/50-day mov
 ## Architecture
 
 ```
-main.py                  — FastAPI app, router registration, /health
+main.py                  — FastAPI app, router registration, error handlers, /health
 routes/
     signal.py            — POST /signal  (HTTP in/out only)
     backtest.py          — POST /backtest (HTTP in/out only)
@@ -24,7 +24,7 @@ schemas/
     signal.py            — SignalRequest, SignalResponse
     backtest.py          — BacktestRequest, BacktestResponse
 services/
-    data.py              — fetches market data via yfinance
+    data.py              — fetches market data via yfinance; raises NoPriceDataError (404) or MarketDataUnavailableError (503)
     features.py          — computes daily returns, moving averages, volatility, trend slope, price position, RSI, MACD
     signal.py            — generates BUY/SELL/HOLD signal with confidence score
     decisions.py         — converts a signal + confidence into a position-sizing decision
@@ -36,6 +36,7 @@ tests/
     test_features.py     — unit tests for feature calculations
     test_backtest_route.py — HTTP-layer tests via TestClient (no live data)
     test_validation.py   — request validation for both endpoints (no live data)
+    test_data.py         — unit tests for the data fetch and its error translation (no live data)
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
 ```
@@ -77,7 +78,7 @@ pip install -r requirements.txt
 python -m pytest -v
 ```
 
-All 59 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 95 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -99,7 +100,9 @@ The server starts at `http://127.0.0.1:8000`.
 | POST | `/signal` | Generate a trading signal for a symbol |
 | POST | `/backtest` | Run a historical backtest for a symbol |
 
-**Input validation.** `symbol` must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
+**Input validation and errors.** `symbol` must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
+
+When Yahoo Finance returns no rows for a symbol the API returns `404` with `No price data found for symbol: X`. This also happens when Yahoo rate-limits requests, so it does not always mean the symbol is unknown. When Yahoo Finance cannot be reached or fails, the API returns `503` with a `Retry-After` header. Each request to Yahoo times out after 10 seconds.
 
 ---
 

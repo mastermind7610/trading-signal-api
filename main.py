@@ -7,6 +7,10 @@ from fastapi.responses import JSONResponse
 
 from routes.signal import router as signal_router
 from routes.backtest import router as backtest_router
+from services.data import MarketDataUnavailableError, NoPriceDataError
+
+# Sent with every 503 so well-behaved clients know when to retry.
+RETRY_AFTER_SECONDS = 30
 
 app = FastAPI()
 
@@ -34,6 +38,20 @@ async def request_validation_error_handler(request: Request, exc: RequestValidat
     return JSONResponse(
         status_code=422,
         content={"detail": _json_safe(jsonable_encoder(exc.errors()))},
+    )
+
+
+@app.exception_handler(NoPriceDataError)
+async def no_price_data_handler(request: Request, exc: NoPriceDataError):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(MarketDataUnavailableError)
+async def market_data_unavailable_handler(request: Request, exc: MarketDataUnavailableError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+        headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
     )
 
 

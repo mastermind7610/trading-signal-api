@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from main import app
 from services import signal as signal_service
+from services.data import MarketDataUnavailableError, NoPriceDataError
 from services.features import compute_macd
 
 
@@ -150,6 +151,35 @@ def test_post_signal_response_macd_null_for_thin_history(monkeypatch):
     for field in MACD_FIELDS:
         assert field in body
         assert body[field] is None
+
+
+def test_post_signal_no_price_data_returns_404(monkeypatch):
+    def raise_no_data(symbol):
+        raise NoPriceDataError(f"No price data found for symbol: {symbol}")
+
+    monkeypatch.setattr(signal_service, "get_price_data", raise_no_data)
+
+    response = client.post("/signal", json={"symbol": "unknown"})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "No price data found for symbol: UNKNOWN"}
+
+
+def test_post_signal_market_data_unavailable_returns_503(monkeypatch):
+    def raise_unavailable(symbol):
+        raise MarketDataUnavailableError(
+            f"Market data for {symbol} is temporarily unavailable. Try again shortly."
+        )
+
+    monkeypatch.setattr(signal_service, "get_price_data", raise_unavailable)
+
+    response = client.post("/signal", json={"symbol": "aapl"})
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Market data for AAPL is temporarily unavailable. Try again shortly."
+    }
+    assert response.headers["retry-after"] == "30"
 
 
 def test_generate_signal_sell_path(monkeypatch):

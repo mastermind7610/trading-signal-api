@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from main import app
 from routes import backtest as backtest_route
 from services import backtest as backtest_service
+from services.data import MarketDataUnavailableError, NoPriceDataError
 
 
 client = TestClient(app)
@@ -54,22 +55,33 @@ def test_post_backtest_success(monkeypatch):
     assert 0 <= body["average_exposure"] <= 0.1
 
 
-def test_post_backtest_data_error_returns_400(monkeypatch):
-    def raise_value_error(symbol, period):
-        raise ValueError(f"No price data found for symbol: {symbol}")
+def test_post_backtest_no_price_data_returns_404(monkeypatch):
+    def raise_no_data(symbol, period):
+        raise NoPriceDataError(f"No price data found for symbol: {symbol}")
 
-    monkeypatch.setattr(
-        backtest_route,
-        "get_price_data",
-        raise_value_error,
-    )
+    monkeypatch.setattr(backtest_route, "get_price_data", raise_no_data)
 
-    response = client.post("/backtest", json={"symbol": "UNKNOWN"})
+    response = client.post("/backtest", json={"symbol": "unknown"})
 
-    assert response.status_code == 400
+    assert response.status_code == 404
+    assert response.json() == {"detail": "No price data found for symbol: UNKNOWN"}
+
+
+def test_post_backtest_market_data_unavailable_returns_503(monkeypatch):
+    def raise_unavailable(symbol, period):
+        raise MarketDataUnavailableError(
+            f"Market data for {symbol} is temporarily unavailable. Try again shortly."
+        )
+
+    monkeypatch.setattr(backtest_route, "get_price_data", raise_unavailable)
+
+    response = client.post("/backtest", json={"symbol": "aapl"})
+
+    assert response.status_code == 503
     assert response.json() == {
-        "detail": "No price data found for symbol: UNKNOWN",
+        "detail": "Market data for AAPL is temporarily unavailable. Try again shortly."
     }
+    assert response.headers["retry-after"] == "30"
 
 
 def test_post_backtest_passes_period_and_trading_cost(monkeypatch):
