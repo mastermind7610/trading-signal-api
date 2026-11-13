@@ -39,6 +39,10 @@ tests/
     test_data.py         — unit tests for the data fetch and its error translation (no live data)
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
+requirements.txt         — runtime dependencies, exact pins (what the Docker image installs)
+requirements-dev.txt     — the above plus pytest and httpx
+Dockerfile               — production image: runtime deps only, explicit copies, non-root user
+.github/workflows/deploy.yml — CI: run the tests, then build, push and deploy the image to Azure Container Apps
 ```
 
 **Data flow:**
@@ -93,6 +97,17 @@ uvicorn main:app --reload
 ```
 
 The server starts at `http://127.0.0.1:8000`.
+
+---
+
+## Running with Docker
+
+```bash
+docker build -t trading-simms .
+docker run --rm -p 8000:8000 trading-simms
+```
+
+The image is built on `python:3.13.3-slim`, installs only `requirements.txt` (no test tools), copies only `main.py`, `routes/`, `schemas/` and `services/`, and runs uvicorn as an unprivileged user (`app`, UID 10001). It needs outbound internet access to reach Yahoo Finance.
 
 ---
 

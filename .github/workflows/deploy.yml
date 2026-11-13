@@ -18,14 +18,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Same Python version as the Dockerfile's base image
+      # Same Python minor version as the Dockerfile's base image (3.13.3)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
+      # Runtime pins plus pytest and httpx; the image installs requirements.txt only
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       # "python -m pytest" (not bare "pytest") puts the repo root on the
       # import path so tests can import main, routes, services and schemas
