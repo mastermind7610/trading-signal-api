@@ -58,7 +58,33 @@ def test_generate_signal_buy_path(monkeypatch):
 
     assert result["symbol"] == "AAPL"
     assert result["signal"] == "BUY"
-    assert result["confidence"] >= 0.5
+    # A BUY carries real conviction and therefore a real position.
+    assert result["confidence"] > 0.5
+    assert result["decision"]["position_pct"] > 0
+
+
+def test_generate_signal_buy_sizes_position_from_confidence(monkeypatch):
+    # A 2% gap between the averages at 1% daily volatility is a typical BUY:
+    # confidence 0.8, which make_decision maps to two thirds of the 10% cap.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [103.0],
+            "ma_20": [102.0],
+            "ma_50": [100.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.03],
+            "rsi": [55.0],
+            "macd_histogram": [0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl", portfolio_value=10000)
+
+    assert result["signal"] == "BUY"
+    assert result["confidence"] == 0.8
+    assert result["decision"] == {"position_pct": 0.0667, "position_value": 667.0}
 
 
 def test_generate_signal_exposes_latest_macd_values(monkeypatch):
@@ -319,6 +345,54 @@ def test_generate_signal_nan_feature_fallback(monkeypatch):
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
     }
+
+
+# compute_confidence measures the gap between the moving averages in units of
+# daily volatility and maps it linearly onto [0.5, 0.95], reaching 0.95 once
+# the gap is FULL_CONFIDENCE_STRENGTH (3) daily standard deviations wide.
+
+
+def test_confidence_is_floor_when_averages_coincide():
+    assert signal_service.compute_confidence(100.0, 100.0, 0.01) == 0.5
+
+
+def test_confidence_rises_linearly_with_gap_in_volatility_units():
+    # 1% gap at 1% daily vol is one of the three units: 0.5 + 0.45 / 3
+    assert signal_service.compute_confidence(101.0, 100.0, 0.01) == 0.65
+    # 2% gap at 1% daily vol is two units: 0.5 + 0.45 * 2 / 3
+    assert signal_service.compute_confidence(102.0, 100.0, 0.01) == 0.8
+
+
+def test_confidence_reaches_cap_at_full_strength_and_stays_there():
+    assert signal_service.FULL_CONFIDENCE_STRENGTH == 3.0
+    assert signal_service.compute_confidence(103.0, 100.0, 0.01) == 0.95
+    assert signal_service.compute_confidence(130.0, 100.0, 0.01) == 0.95
+
+
+def test_confidence_depends_on_gap_relative_to_volatility():
+    # A 4% gap in a market that moves 2% a day is exactly as decisive as a
+    # 2% gap in one that moves 1% a day, so a volatile symbol is not
+    # favoured over a calm one just for having wider raw gaps.
+    calm = signal_service.compute_confidence(102.0, 100.0, 0.01)
+    volatile = signal_service.compute_confidence(104.0, 100.0, 0.02)
+    assert calm == volatile == 0.8
+    # The same raw gap in a choppier market earns less confidence.
+    assert signal_service.compute_confidence(102.0, 100.0, 0.02) < calm
+
+
+def test_confidence_is_symmetric_for_bearish_gaps():
+    bullish = signal_service.compute_confidence(102.0, 100.0, 0.01)
+    bearish = signal_service.compute_confidence(98.0, 100.0, 0.01)
+    assert bullish == bearish
+
+
+def test_confidence_zero_volatility_with_gap_is_cap():
+    # A perfectly steady trend has no noise to measure the gap against.
+    assert signal_service.compute_confidence(101.0, 100.0, 0.0) == 0.95
+
+
+def test_confidence_zero_volatility_without_gap_is_floor():
+    assert signal_service.compute_confidence(100.0, 100.0, 0.0) == 0.5
 
 
 def test_generate_signal_invalid_ma_50_fallback(monkeypatch):

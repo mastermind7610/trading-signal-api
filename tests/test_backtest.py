@@ -76,6 +76,8 @@ def test_run_backtest_counts_buy_signals():
     # the metrics are computed.
     assert math.isfinite(result["cumulative_strategy_return"])
     assert math.isfinite(result["sharpe_ratio"])
+    # Position size follows confidence, so BUY days put real money to work.
+    assert result["average_exposure"] > 0
 
 
 def test_run_backtest_counts_sell_signals():
