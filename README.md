@@ -27,7 +27,7 @@ services/
     features.py          — computes daily returns, moving averages, volatility, trend slope, price position, RSI
     signal.py            — generates BUY/SELL/HOLD signal with confidence score
     decisions.py         — converts a signal + confidence into a position-sizing decision
-    backtest.py          — walk-forward backtest, returns cumulative returns
+    backtest.py          — walk-forward, long-only backtest with next-day fills and trading costs
 tests/
     test_signal.py       — unit tests for signal generation (no live data)
     test_decisions.py    — unit tests for position-sizing decisions
@@ -39,7 +39,7 @@ tests/
 **Data flow:**
 
 - `/signal`: `routes/signal` → `services/data` → `services/features` → `services/signal` → `services/decisions`
-- `/backtest`: `routes/backtest` → `services/data` → `services/backtest` (which calls `services/features` and `services/signal` internally)
+- `/backtest`: `routes/backtest` → `services/data` → `services/backtest` (which calls `services/features`, `services/signal` and `services/decisions` internally)
 
 ---
 
@@ -73,7 +73,7 @@ pip install -r requirements.txt
 python -m pytest -v
 ```
 
-All 26 tests should pass. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 51 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -126,24 +126,43 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser.
 ### Test /backtest
 
 1. Click **POST /backtest** → **Try it out**
-2. Enter request body:
+2. Enter request body (`period` and `trading_cost_pct` are optional):
    ```json
-   { "symbol": "AAPL" }
+   { "symbol": "AAPL", "period": "5y", "trading_cost_pct": 0.001 }
    ```
+   - `period` — how much daily history to test: `6mo`, `1y`, `2y`, `5y` (default) or `10y`.
+   - `trading_cost_pct` — commission plus slippage, as a fraction of the amount bought or sold. Default `0.001` (0.1%), maximum `0.05`.
 3. Click **Execute**
 4. Expected response:
    ```json
    {
      "symbol": "AAPL",
-     "buy_signals": 42,
-     "sell_signals": 18,
-     "hold_signals": 6,
-     "cumulative_strategy_return": 0.1234,
-     "buy_and_hold_return": 0.0987,
-     "sharpe_ratio": 1.35
+     "buy_signals": 174,
+     "sell_signals": 154,
+     "hold_signals": 870,
+     "cumulative_strategy_return": -0.0004,
+     "buy_and_hold_return": 1.0578,
+     "sharpe_ratio": -0.19,
+     "max_drawdown": -0.0009,
+     "trades": 95,
+     "total_trading_costs": 0.000537,
+     "average_exposure": 0.0006
    }
    ```
-   Returns are expressed as decimals (0.10 = 10%). `sharpe_ratio` is the annualized Sharpe ratio of the daily strategy returns (risk-free rate 0.0; 0.0 when undefined). The backtest runs over the last 6 months of daily data using a walk-forward approach.
+   Returns are expressed as decimals (0.10 = 10%).
+
+   **How the backtest trades.** It follows `/signal`'s advice the way you could in a real brokerage account:
+   - **Long-only.** BUY holds a position sized exactly as `/signal`'s `decision` block (0–10% of the portfolio). SELL and HOLD both mean cash. Nothing is ever shorted.
+   - **Next-day fills.** Each signal uses data up to that day's close, and the order fills at the next day's open. The old position is held overnight until then.
+   - **Trading costs.** Every change in position size pays `trading_cost_pct` on the amount traded.
+   - **Warm-up.** The first ~54 trading days are indicator warm-up (MA50 plus its 5-day slope), when no signal is possible. The backtest starts on the first day a signal can be computed, and buy-and-hold is measured from that same day.
+
+   **Response fields.**
+   - `sharpe_ratio` — annualized Sharpe ratio of the daily strategy returns (risk-free rate 0.0; 0.0 when undefined).
+   - `max_drawdown` — the largest peak-to-trough fall in portfolio value, as a negative decimal.
+   - `trades` — the number of days the position size changed. Each one pays the trading cost.
+   - `total_trading_costs` — the sum of all trading costs, as a fraction of the portfolio.
+   - `average_exposure` — the average fraction of the portfolio held in the stock.
 
 ---
 
@@ -170,8 +189,8 @@ RSI is a 14-day Relative Strength Index. When it is unavailable (insufficient hi
 
 `services/decisions.py` turns each signal into a position-sizing decision:
 
-- **HOLD** → `position_pct = 0.0` (no allocation).
-- **BUY / SELL** → confidence is rescaled from its [0.5, 0.95] range to [0, 1] and applied to a maximum allocation of **10%** of the portfolio.
+- **BUY** → confidence is rescaled from its [0.5, 0.95] range to [0, 1] and applied to a maximum allocation of **10%** of the portfolio.
+- **SELL / HOLD** → `position_pct = 0.0` (hold nothing, in cash). The system is long-only and never shorts.
 
 `position_value` is `position_pct × portfolio_value`, rounded to cents.
 
@@ -179,15 +198,20 @@ RSI is a 14-day Relative Strength Index. When it is unavailable (insufficient hi
 
 ## Backtest Results
 
-Walk-forward backtests over the last 6 months of daily data, strategy return vs. buy-and-hold:
+Long-only backtests on 5 years of daily data (2021-11-10 to 2026-11-09), with next-day fills and the default 0.1% trading cost. After indicator warm-up, each covers 1,198 trading days:
 
-| Symbol | Strategy Return | Buy-and-Hold Return | Sharpe Ratio |
-|--------|-----------------|---------------------|--------------|
-| NVDA   | +9.11%          | +21.38%             | 0.83         |
-| MSFT   | -10.59%         | -21.25%             | -1.12        |
-| AAPL   | -7.05%          | +9.71%              | -0.89        |
+| Symbol | Strategy Return | Buy-and-Hold Return | Sharpe | Max Drawdown | Avg. Exposure | Trades | BUY / SELL / HOLD days |
+|--------|-----------------|---------------------|--------|--------------|---------------|--------|------------------------|
+| SPY    | -0.03%          | +77.26%             | -0.42  | -0.03%       | 0.03%         | 87     | 203 / 111 / 884        |
+| AAPL   | -0.04%          | +105.78%            | -0.19  | -0.09%       | 0.06%         | 95     | 174 / 154 / 870        |
+| MSFT   | -0.08%          | +79.03%             | -0.44  | -0.12%       | 0.03%         | 70     | 126 / 142 / 930        |
+| NVDA   | -0.02%          | +720.66%            | -0.02  | -0.43%       | 0.12%         | 102    | 171 / 147 / 880        |
 
-The strategy underperformed buy-and-hold on NVDA during a strong rally, but materially limited losses on MSFT during a drawdown — consistent with a trend-following approach that trades conservatively and sits in cash on weak signals. Past results do not guarantee future performance.
+The strategy lost a little money on every symbol while buy-and-hold gained 77–721%. The main reason is position sizing. Confidence rarely rises much above its 0.5 floor, so BUY positions are a tiny fraction of the 10% maximum, and on average less than 0.15% of the portfolio is ever invested. Before trading costs those small positions roughly broke even, and costs turned that into a small loss on every symbol.
+
+An earlier version of this backtest (same signals, 100% invested on BUY, 100% short on SELL, no costs, same-day fills) also trailed buy-and-hold on all four symbols: SPY +11.7% vs +77.3%, AAPL +22.0% vs +105.8%, MSFT -35.0% vs +79.0%, NVDA -0.3% vs +720.7%. So larger positions alone would not fix it: the signals themselves have not beaten buy-and-hold either.
+
+Past results do not guarantee future performance.
 
 ---
 

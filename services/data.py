@@ -2,13 +2,13 @@ import pandas as pd
 import yfinance as yf
 
 
-def get_price_data(symbol: str) -> pd.DataFrame:
+def get_price_data(symbol: str, period: str = "6mo") -> pd.DataFrame:
     cleaned_symbol = symbol.strip().upper()
     if not cleaned_symbol:
         raise ValueError("Symbol is required.")
 
     data = yf.Ticker(cleaned_symbol).history(
-        period="6mo",
+        period=period,
         interval="1d",
         auto_adjust=True,
     )

@@ -11,7 +11,11 @@ router = APIRouter()
 @router.post("/backtest", response_model=BacktestResponse)
 def backtest_signal(request: BacktestRequest):
     try:
-        price_data = get_price_data(request.symbol)
-        return run_backtest(request.symbol, price_data)
+        price_data = get_price_data(request.symbol, period=request.period)
+        return run_backtest(
+            request.symbol,
+            price_data,
+            trading_cost_pct=request.trading_cost_pct,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
