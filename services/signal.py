@@ -13,7 +13,14 @@ logger = logging.getLogger(__name__)
 
 MIN_REQUIRED_ROWS = 50
 DEFAULT_HOLD_CONFIDENCE = CONFIDENCE_MIN
-REQUIRED_FEATURE_COLUMNS = ["Close", "ma_20", "ma_50", "rolling_volatility", "trend_slope", "price_position"]
+REQUIRED_FEATURE_COLUMNS = [
+    "Close",
+    "ma_20",
+    "ma_50",
+    "rolling_volatility",
+    "trend_slope",
+    "price_position",
+]
 # How decisive a crossover must be to earn CONFIDENCE_MAX: the gap between
 # the moving averages measured in units of 20-day daily volatility. On five
 # years of SPY, AAPL, MSFT and NVDA the median BUY day sits near 1.7 and the

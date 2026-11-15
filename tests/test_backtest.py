@@ -20,7 +20,7 @@ def _price_data(close_prices):
 
 
 def _open_close(rows):
-    opens, closes = zip(*rows)
+    opens, closes = zip(*rows, strict=True)
     return pd.DataFrame({"Open": list(opens), "Close": list(closes)})
 
 

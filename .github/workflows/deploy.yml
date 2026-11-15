@@ -24,9 +24,14 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Runtime pins plus pytest and httpx; the image installs requirements.txt only
+      # Runtime pins plus pytest, httpx and ruff; the image installs requirements.txt only
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+
+      # Lint before the tests: a style or import-order regression fails the
+      # build fast, before the slower test run. Config lives in pyproject.toml.
+      - name: Lint with ruff
+        run: python -m ruff check .
 
       # "python -m pytest" (not bare "pytest") puts the repo root on the
       # import path so tests can import main, routes, services and schemas

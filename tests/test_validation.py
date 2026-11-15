@@ -6,7 +6,6 @@ from main import app
 from routes import backtest as backtest_route
 from routes import signal as signal_route
 
-
 client = TestClient(app)
 
 

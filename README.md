@@ -44,9 +44,10 @@ tests/
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
 requirements.txt         — runtime dependencies, exact pins (what the Docker image installs)
-requirements-dev.txt     — the above plus pytest and httpx
+requirements-dev.txt     — the above plus pytest, httpx and ruff
+pyproject.toml           — ruff (lint + import-order) configuration; no packaging metadata
 Dockerfile               — production image: runtime deps only, explicit copies, non-root user
-.github/workflows/deploy.yml — CI: run the tests, then build, push and deploy the image to Azure Container Apps
+.github/workflows/deploy.yml — CI: lint, run the tests, then build, push and deploy the image to Azure Container Apps
 ```
 
 **Data flow:**
@@ -91,6 +92,16 @@ python -m pytest -v
 ```
 
 All 121 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+
+---
+
+## Linting
+
+```bash
+python -m ruff check .
+```
+
+Ruff enforces pycodestyle, pyflakes, import order, bugbear and pyupgrade rules; its configuration lives in `pyproject.toml`. CI runs this check before the tests, so the same command run locally catches anything the pipeline would reject. Code formatting is left to the author — `ruff format` is not part of the workflow.
 
 ---
 

@@ -1,6 +1,6 @@
 import pytest
 
-from services.decisions import make_decision, MAX_POSITION_PCT
+from services.decisions import MAX_POSITION_PCT, make_decision
 
 
 def test_hold_always_zero():

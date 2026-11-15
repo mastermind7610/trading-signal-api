@@ -4,7 +4,6 @@ from services.decisions import make_decision
 from services.features import build_features
 from services.signal import REQUIRED_FEATURE_COLUMNS, generate_signal_from_features
 
-
 SIGNALS = ("BUY", "SELL", "HOLD")
 
 # Trading days per year, used to annualize the Sharpe ratio.

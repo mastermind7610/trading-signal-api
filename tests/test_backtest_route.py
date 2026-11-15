@@ -8,7 +8,6 @@ from routes import backtest as backtest_route
 from services import backtest as backtest_service
 from services.data import MarketDataUnavailableError, NoPriceDataError
 
-
 client = TestClient(app)
 
 

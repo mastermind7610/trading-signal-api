@@ -7,7 +7,6 @@ from services import signal as signal_service
 from services.data import MarketDataUnavailableError, NoPriceDataError
 from services.features import compute_macd
 
-
 client = TestClient(app)
 
 MACD_FIELDS = ("macd_line", "signal_line", "histogram")

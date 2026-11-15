@@ -35,7 +35,10 @@ def require_api_key(provided: str | None = Security(_api_key_header)) -> None:
     if not accepted:
         raise HTTPException(
             status_code=503,
-            detail=f"API key authentication is not configured: set {API_KEY_ENV_VAR} on the server.",
+            detail=(
+                "API key authentication is not configured: "
+                f"set {API_KEY_ENV_VAR} on the server."
+            ),
         )
 
     # Compare against every key, in constant time each, so the response time
