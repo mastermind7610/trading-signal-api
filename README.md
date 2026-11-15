@@ -47,7 +47,7 @@ requirements.txt         — runtime dependencies, exact pins (what the Docker i
 requirements-dev.txt     — the above plus pytest, httpx and ruff
 pyproject.toml           — ruff (lint + import-order) configuration; no packaging metadata
 Dockerfile               — production image: runtime deps only, explicit copies, non-root user
-.github/workflows/deploy.yml — CI: lint, run the tests, then build, push and deploy the image to Azure Container Apps
+.github/workflows/deploy.yml — CI: lint and test every PR into main; on a push to main, also build, push and deploy the image to Azure Container Apps
 ```
 
 **Data flow:**

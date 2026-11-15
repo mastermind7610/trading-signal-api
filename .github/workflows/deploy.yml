@@ -3,6 +3,8 @@ name: Deploy to Azure Container Apps
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]      # lint and test every PR into main before it merges
   workflow_dispatch:        # lets you trigger a deploy manually from the Actions tab
 
 env:
@@ -40,6 +42,9 @@ jobs:
 
   deploy:
     needs: test
+    # Build and ship only on a push to main (or a manual dispatch). A
+    # pull_request run stops at the test job: it validates, never deploys.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
