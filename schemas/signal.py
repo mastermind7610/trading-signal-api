@@ -36,6 +36,7 @@ class SignalResponse(BaseModel):
                     "symbol": "AAPL",
                     "signal": "BUY",
                     "confidence": 0.68,
+                    "reason": "ma_crossover_bullish",
                     "decision": {"position_pct": 0.04, "position_value": 400.0},
                     "rsi": 57.34,
                     "macd_line": 3.7935,
@@ -50,6 +51,13 @@ class SignalResponse(BaseModel):
     signal: str = Field(description="BUY, SELL or HOLD.")
     confidence: float = Field(
         description="0.5 to 0.95: how decisive the moving-average crossover is."
+    )
+    reason: str = Field(
+        description=(
+            "Machine-readable code for why this signal was produced: the "
+            "crossover basis, the veto that downgraded it to HOLD, or the "
+            "fallback that forced HOLD. See the README's Signal Logic section."
+        )
     )
     decision: Decision
     rsi: float | None = Field(

@@ -91,7 +91,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 124 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 128 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -208,6 +208,7 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The do
      "symbol": "AAPL",
      "signal": "BUY",
      "confidence": 0.68,
+     "reason": "ma_crossover_bullish",
      "rsi": 57.34488840886845,
      "macd_line": 3.7935404005651776,
      "signal_line": 3.0583843631302483,
@@ -218,7 +219,7 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The do
      }
    }
    ```
-   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95 and measures how decisive the moving-average crossover is (see [Signal Logic](#signal-logic)). The `decision` block sizes a position from the confidence score: `position_pct` is the fraction of the portfolio to allocate (capped at 10%), and `position_value` is that fraction applied to `portfolio_value`. `rsi` is the latest 14-day Relative Strength Index (0–100). `macd_line`, `signal_line` and `histogram` are the latest MACD (12/26/9) values. `rsi` and the MACD fields are `null` when there is not enough history to compute them.
+   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95 and measures how decisive the moving-average crossover is (see [Signal Logic](#signal-logic)). `reason` is a machine-readable code for how the signal was reached — the crossover basis, the veto that forced HOLD, or the fallback that did (see [Reason codes](#reason-codes)). The `decision` block sizes a position from the confidence score: `position_pct` is the fraction of the portfolio to allocate (capped at 10%), and `position_value` is that fraction applied to `portfolio_value`. `rsi` is the latest 14-day Relative Strength Index (0–100). `macd_line`, `signal_line` and `histogram` are the latest MACD (12/26/9) values. `rsi` and the MACD fields are `null` when there is not enough history to compute them.
 
 ### Test /backtest
 
@@ -286,6 +287,30 @@ RSI is a 14-day Relative Strength Index. `/signal` returns its raw value, or `nu
 
 MACD is the standard 12/26/9 Moving Average Convergence Divergence: the MACD line is the 12-day EMA minus the 26-day EMA, the signal line is a 9-day EMA of the MACD line, and the histogram is their difference. `/signal` returns all three. When there is not enough history they are `null` in the response and the histogram defaults to a neutral 0 so it never forces an override.
 
+### Reason codes
+
+Every `/signal` response carries a `reason`: a single machine-readable code for how the signal was reached. Exactly one code is reported.
+
+| `reason` | Meaning |
+|----------|---------|
+| `ma_crossover_bullish` | BUY — 20-day MA above 50-day MA, no veto |
+| `ma_crossover_bearish` | SELL — 20-day MA below 50-day MA, no veto |
+| `no_ma_crossover` | HOLD — the moving averages coincide |
+| `sell_vetoed_trend_rising` | SELL vetoed — 50-day trend still rising (> 0.01) |
+| `buy_vetoed_trend_falling` | BUY vetoed — 50-day trend falling hard (< -0.01) |
+| `sell_vetoed_price_above_ma50` | SELL vetoed — price well above MA50 (> 5%) |
+| `buy_vetoed_overbought` | BUY vetoed — RSI overbought (> 70) |
+| `sell_vetoed_oversold` | SELL vetoed — RSI oversold (< 30) |
+| `buy_vetoed_macd_bearish` | BUY vetoed — MACD histogram negative |
+| `sell_vetoed_macd_bullish` | SELL vetoed — MACD histogram positive |
+| `insufficient_price_history` | HOLD — fewer than 50 trading days of prices |
+| `missing_feature_columns` | HOLD — a required feature column was absent |
+| `insufficient_feature_data` | HOLD — no row had every required feature present |
+| `invalid_feature_values` | HOLD — a required feature was null, or MA50 was zero |
+| `invalid_confidence` | HOLD — the computed confidence was not finite |
+
+The overrides are checked in the order listed under [Signal Logic](#signal-logic), and only the first one that matches can fire, so a `*_vetoed_*` code names the single veto responsible. Whenever a veto downgrades a crossover to HOLD, confidence is the HOLD floor of 0.5, not the score the rejected crossover would have earned.
+
 ### Confidence
 
 Confidence measures how decisive the crossover is: the gap between the two moving averages, as a fraction of the 50-day MA, divided by the 20-day volatility of daily returns.
@@ -299,7 +324,7 @@ No gap gives 0.5. A gap three daily standard deviations wide, or wider, gives th
 
 The constant 3 was chosen on the same five-year window of SPY, AAPL, MSFT and NVDA that the [Backtest Results](#backtest-results) report. On that window the median BUY day has a strength near 1.7 and the top quarter sits above 3, so a typical BUY lands near 0.75 and a clearly established trend at the cap. It is a scale choice rather than a fitted edge (2 and 4 give the same qualitative results), but it was not chosen out of sample.
 
-**Known limitation:** confidence describes the crossover, not the final signal, so a signal that an override downgraded to HOLD can still report a high confidence (for example HOLD at 0.95) even though its position is zero; a `reason` field naming the override will fix this in a later step.
+Confidence describes the crossover. When a veto downgrades that crossover to HOLD, reporting the crossover's score would be misleading — a zero-position HOLD at 0.95 — so the response instead reports the HOLD floor of 0.5 and the `reason` field names the veto that fired (see [Reason codes](#reason-codes)).
 
 ### Position Sizing
 

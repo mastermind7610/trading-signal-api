@@ -28,6 +28,7 @@ def signal_service_stub(monkeypatch):
             "symbol": symbol,
             "signal": "HOLD",
             "confidence": 0.5,
+            "reason": "no_ma_crossover",
             "decision": {"position_pct": 0.0, "position_value": 0.0},
         }
 

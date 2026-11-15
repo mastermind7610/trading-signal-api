@@ -385,6 +385,86 @@ def test_generate_signal_missing_macd_keeps_buy(monkeypatch):
     assert result["signal"] == "BUY"
 
 
+def test_generate_signal_clean_buy_reports_crossover_reason(monkeypatch):
+    # A BUY no override touches keeps its crossover reason and real confidence.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [103.0],
+            "ma_20": [102.0],
+            "ma_50": [100.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.03],
+            "rsi": [55.0],
+            "macd_histogram": [0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "BUY"
+    assert result["reason"] == "ma_crossover_bullish"
+    assert result["confidence"] == 0.8
+
+
+def test_generate_signal_overbought_veto_names_reason_and_resets_confidence(monkeypatch):
+    # A wide crossover would be a high-confidence BUY, but RSI > 70 vetoes it.
+    # The response must name the veto and drop confidence to the HOLD floor
+    # rather than report the rejected crossover's 0.95.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [104.0],
+            "ma_20": [104.0],
+            "ma_50": [100.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.04],
+            "rsi": [75.0],
+            "macd_histogram": [0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "HOLD"
+    assert result["reason"] == "buy_vetoed_overbought"
+    assert result["confidence"] == 0.5
+
+
+def test_generate_signal_oversold_veto_names_reason_and_resets_confidence(monkeypatch):
+    # The mirror case: a wide bearish crossover vetoed by RSI < 30.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [96.0],
+            "ma_20": [96.0],
+            "ma_50": [100.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [-0.04],
+            "rsi": [25.0],
+            "macd_histogram": [-0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["signal"] == "HOLD"
+    assert result["reason"] == "sell_vetoed_oversold"
+    assert result["confidence"] == 0.5
+
+
+def test_post_signal_response_includes_reason_field(monkeypatch):
+    _mock_price_data(monkeypatch, _rising_series())
+
+    response = client.post("/signal", json={"symbol": "aapl"})
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "ma_crossover_bullish"
+
+
 def test_generate_signal_hold_path(monkeypatch):
     _mock_price_data(monkeypatch, [100.0] * 60)
 
@@ -394,6 +474,7 @@ def test_generate_signal_hold_path(monkeypatch):
         "symbol": "SPY",
         "signal": "HOLD",
         "confidence": 0.5,
+        "reason": "no_ma_crossover",
         # A flat series has no gains or losses, so RSI is undefined (null).
         "rsi": None,
         # A flat series has a well-defined, zero MACD.
@@ -413,6 +494,7 @@ def test_generate_signal_insufficient_data_fallback(monkeypatch):
         "symbol": "TSLA",
         "signal": "HOLD",
         "confidence": 0.5,
+        "reason": "insufficient_price_history",
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
@@ -428,6 +510,7 @@ def test_generate_signal_nan_feature_fallback(monkeypatch):
         "symbol": "NVDA",
         "signal": "HOLD",
         "confidence": 0.5,
+        "reason": "insufficient_feature_data",
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
@@ -555,6 +638,7 @@ def test_generate_signal_invalid_ma_50_fallback(monkeypatch):
         "symbol": "QQQ",
         "signal": "HOLD",
         "confidence": 0.5,
+        "reason": "missing_feature_columns",
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
