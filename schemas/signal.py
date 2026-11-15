@@ -37,6 +37,7 @@ class SignalResponse(BaseModel):
                     "signal": "BUY",
                     "confidence": 0.68,
                     "decision": {"position_pct": 0.04, "position_value": 400.0},
+                    "rsi": 57.34,
                     "macd_line": 3.7935,
                     "signal_line": 3.0584,
                     "histogram": 0.7352,
@@ -51,6 +52,10 @@ class SignalResponse(BaseModel):
         description="0.5 to 0.95: how decisive the moving-average crossover is."
     )
     decision: Decision
+    rsi: float | None = Field(
+        default=None,
+        description="Latest 14-day RSI (0–100); null with too little history.",
+    )
     macd_line: float | None = Field(
         default=None, description="Latest MACD line (12/26/9); null with too little history."
     )

@@ -152,6 +152,60 @@ def test_post_signal_response_macd_null_for_thin_history(monkeypatch):
         assert body[field] is None
 
 
+def test_generate_signal_exposes_latest_rsi_value(monkeypatch):
+    # The raw 14-day RSI is reported, not the neutral 50 the overrides fall
+    # back to.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [103.0],
+            "ma_20": [102.0],
+            "ma_50": [100.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.03],
+            "rsi": [57.34],
+            "macd_histogram": [0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["rsi"] == 57.34
+
+
+def test_generate_signal_rsi_null_but_override_stays_neutral(monkeypatch):
+    # Thin history: RSI is NaN. The response reports null, yet the BUY stands
+    # because the overbought override still reads a neutral 50 internally.
+    fake_features = pd.DataFrame(
+        {
+            "Close": [103.0],
+            "ma_20": [102.0],
+            "ma_50": [100.0],
+            "rolling_volatility": [0.01],
+            "trend_slope": [0.0],
+            "price_position": [0.03],
+            "rsi": [float("nan")],
+            "macd_histogram": [0.5],
+        }
+    )
+    _mock_features(monkeypatch, fake_features)
+
+    result = signal_service.generate_signal("aapl")
+
+    assert result["rsi"] is None
+    assert result["signal"] == "BUY"
+
+
+def test_post_signal_response_includes_rsi_field(monkeypatch):
+    _mock_price_data(monkeypatch, _rising_series())
+
+    response = client.post("/signal", json={"symbol": "aapl"})
+
+    assert response.status_code == 200
+    assert isinstance(response.json()["rsi"], float)
+
+
 def test_post_signal_no_price_data_returns_404(monkeypatch):
     def raise_no_data(symbol):
         raise NoPriceDataError(f"No price data found for symbol: {symbol}")
@@ -340,6 +394,8 @@ def test_generate_signal_hold_path(monkeypatch):
         "symbol": "SPY",
         "signal": "HOLD",
         "confidence": 0.5,
+        # A flat series has no gains or losses, so RSI is undefined (null).
+        "rsi": None,
         # A flat series has a well-defined, zero MACD.
         "macd_line": 0.0,
         "signal_line": 0.0,
@@ -357,6 +413,7 @@ def test_generate_signal_insufficient_data_fallback(monkeypatch):
         "symbol": "TSLA",
         "signal": "HOLD",
         "confidence": 0.5,
+        "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
     }
@@ -371,6 +428,7 @@ def test_generate_signal_nan_feature_fallback(monkeypatch):
         "symbol": "NVDA",
         "signal": "HOLD",
         "confidence": 0.5,
+        "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
     }
@@ -497,6 +555,7 @@ def test_generate_signal_invalid_ma_50_fallback(monkeypatch):
         "symbol": "QQQ",
         "signal": "HOLD",
         "confidence": 0.5,
+        "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
     }

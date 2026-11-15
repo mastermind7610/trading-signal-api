@@ -91,7 +91,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 121 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 124 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
@@ -208,6 +208,7 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The do
      "symbol": "AAPL",
      "signal": "BUY",
      "confidence": 0.68,
+     "rsi": 57.34488840886845,
      "macd_line": 3.7935404005651776,
      "signal_line": 3.0583843631302483,
      "histogram": 0.7351560374349293,
@@ -217,7 +218,7 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The do
      }
    }
    ```
-   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95 and measures how decisive the moving-average crossover is (see [Signal Logic](#signal-logic)). The `decision` block sizes a position from the confidence score: `position_pct` is the fraction of the portfolio to allocate (capped at 10%), and `position_value` is that fraction applied to `portfolio_value`. `macd_line`, `signal_line` and `histogram` are the latest MACD (12/26/9) values; they are `null` when there is not enough history to compute them.
+   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95 and measures how decisive the moving-average crossover is (see [Signal Logic](#signal-logic)). The `decision` block sizes a position from the confidence score: `position_pct` is the fraction of the portfolio to allocate (capped at 10%), and `position_value` is that fraction applied to `portfolio_value`. `rsi` is the latest 14-day Relative Strength Index (0–100). `macd_line`, `signal_line` and `histogram` are the latest MACD (12/26/9) values. `rsi` and the MACD fields are `null` when there is not enough history to compute them.
 
 ### Test /backtest
 
@@ -281,7 +282,7 @@ The base crossover signal is then refined by overrides. Each can only downgrade 
 - A **BUY** is downgraded to **HOLD** if the MACD histogram is negative (momentum disagrees with the bullish crossover).
 - A **SELL** is downgraded to **HOLD** if the MACD histogram is positive (momentum disagrees with the bearish crossover).
 
-RSI is a 14-day Relative Strength Index. When it is unavailable (insufficient history), it defaults to a neutral 50 so it never forces an override.
+RSI is a 14-day Relative Strength Index. `/signal` returns its raw value, or `null` when there is too little history to compute it. For the overrides above, an unavailable RSI is treated as a neutral 50 so it never forces an override — that default is internal to the override check and is not what the response reports.
 
 MACD is the standard 12/26/9 Moving Average Convergence Divergence: the MACD line is the 12-day EMA minus the 26-day EMA, the signal line is a 9-day EMA of the MACD line, and the histogram is their difference. `/signal` returns all three. When there is not enough history they are `null` in the response and the histogram defaults to a neutral 0 so it never forces an override.
 

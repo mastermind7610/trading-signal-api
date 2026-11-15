@@ -137,6 +137,7 @@ def _hold_response(
     ma_50: float | None = None,
     rolling_volatility: float | None = None,
     macd: dict | None = None,
+    rsi: float | None = None,
     log_decision: bool = True,
 ) -> dict:
     if log_decision:
@@ -155,6 +156,7 @@ def _hold_response(
         "symbol": symbol,
         "signal": "HOLD",
         "confidence": DEFAULT_HOLD_CONFIDENCE,
+        "rsi": rsi,
         **(macd or _latest_macd({})),
     }
 
@@ -199,6 +201,7 @@ def generate_signal_from_features(
             ma_50=_safe_float(latest_row.get("ma_50")),
             rolling_volatility=_safe_float(latest_row.get("rolling_volatility")),
             macd=_latest_macd(latest_row),
+            rsi=_safe_float(latest_row.get("rsi")),
             log_decision=log_decision,
         )
 
@@ -223,15 +226,18 @@ def generate_signal_from_features(
             ma_50=ma_50,
             rolling_volatility=rolling_volatility,
             macd=macd,
+            rsi=_safe_float(latest.get("rsi")),
             log_decision=log_decision,
         )
 
     trend_slope = _safe_float(latest.get("trend_slope")) or 0.0
     price_position = _safe_float(latest.get("price_position")) or 0.0
 
+    # The raw RSI is reported on the response; null when history is too thin.
+    # The overrides read a neutral 50 in that case so a missing RSI never
+    # forces a downgrade (behavior unchanged from before it was exposed).
     rsi = _safe_float(latest.get("rsi"))
-    if rsi is None:
-        rsi = 50.0  # neutral default when RSI is unavailable
+    rsi_for_override = 50.0 if rsi is None else rsi
 
     macd_histogram = macd["histogram"]
     if macd_histogram is None:
@@ -257,11 +263,11 @@ def generate_signal_from_features(
         signal = "HOLD"
 
     # Override: don't BUY if overbought (RSI > 70)
-    if signal == "BUY" and rsi > 70:
+    if signal == "BUY" and rsi_for_override > 70:
         signal = "HOLD"
 
     # Override: don't SELL if oversold (RSI < 30)
-    if signal == "SELL" and rsi < 30:
+    if signal == "SELL" and rsi_for_override < 30:
         signal = "HOLD"
 
     # Override: don't BUY if MACD momentum disagrees with the crossover
@@ -304,6 +310,7 @@ def generate_signal_from_features(
         "symbol": cleaned_symbol,
         "signal": signal,
         "confidence": confidence,
+        "rsi": rsi,
         **macd,
     }
 
