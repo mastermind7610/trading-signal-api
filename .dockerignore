@@ -1,4 +1,17 @@
+# Keep the build context to what the Dockerfile copies. The Dockerfile names
+# its files explicitly; this list stops anything else from being sent to the
+# daemon or ending up in a layer by accident.
 .venv
-__pycache__
 .git
+.github
 .pytest_cache
+__pycache__
+*.pyc
+.env
+tests
+scripts
+*.md
+requirements-dev.txt
+Dockerfile
+.dockerignore
+.gitignore

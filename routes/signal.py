@@ -1,11 +1,25 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from routes.auth import require_api_key
+from schemas.common import MARKET_DATA_ERROR_RESPONSES
 from schemas.signal import SignalRequest, SignalResponse
 from services.signal import generate_signal
 
-router = APIRouter()
+router = APIRouter(tags=["signals"], dependencies=[Depends(require_api_key)])
 
-@router.post("/signal", response_model=SignalResponse)
+
+@router.post(
+    "/signal",
+    response_model=SignalResponse,
+    summary="Current signal and position size for a symbol",
+    responses=MARKET_DATA_ERROR_RESPONSES,
+)
 def get_signal(request: SignalRequest):
+    """BUY, SELL or HOLD from the latest six months of daily prices.
+
+    The `decision` block sizes a long-only position from the confidence score,
+    capped at 10% of `portfolio_value`. SELL and HOLD both mean cash.
+    """
     try:
         return generate_signal(request.symbol, request.portfolio_value)
     except ValueError as exc:

@@ -3,6 +3,8 @@ name: Deploy to Azure Container Apps
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]      # lint and test every PR into main before it merges
   workflow_dispatch:        # lets you trigger a deploy manually from the Actions tab
 
 env:
@@ -11,7 +13,38 @@ env:
   RESOURCE_GROUP: trading-simms-rg
 
 jobs:
+  # Run the test suite first; if any test fails, the deploy job never starts
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Same Python minor version as the Dockerfile's base image (3.13.3)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Runtime pins plus pytest, httpx and ruff; the image installs requirements.txt only
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # Lint before the tests: a style or import-order regression fails the
+      # build fast, before the slower test run. Config lives in pyproject.toml.
+      - name: Lint with ruff
+        run: python -m ruff check .
+
+      # "python -m pytest" (not bare "pytest") puts the repo root on the
+      # import path so tests can import main, routes, services and schemas
+      - name: Run tests
+        run: python -m pytest -v
+
   deploy:
+    needs: test
+    # Build and ship only on a push to main (or a manual dispatch). A
+    # pull_request run stops at the test job: it validates, never deploys.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

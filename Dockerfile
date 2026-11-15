@@ -1,20 +1,34 @@
-# Start from an official Python base image
-FROM python:3.13-slim
+# Same Python version as the development virtual environment (3.13.3).
+# Bump this together with the venv and the pins in requirements.txt.
+FROM python:3.13.3-slim
 
-# Set the working directory inside the container
+# No .pyc files in the image; log output goes straight to the container log.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-# Copy requirements first (for faster rebuilds)
+# Runtime dependencies only: pytest and httpx live in requirements-dev.txt
+# and never reach the image. Copied first so this layer is cached until the
+# pins change.
 COPY requirements.txt .
-
-# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of your app
-COPY . .
+# Run as an unprivileged user. It needs a home directory: yfinance writes a
+# timezone cache under the user's cache directory and logs errors when it
+# cannot.
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin app
 
-# Tell Docker the app listens on port 8000
+# Copy only what the service needs. Tests, scripts, CI config and docs stay
+# out of the image; .dockerignore backs this up by keeping them out of the
+# build context.
+COPY --chown=app:app main.py ./
+COPY --chown=app:app routes ./routes
+COPY --chown=app:app schemas ./schemas
+COPY --chown=app:app services ./services
+
+USER app
+
 EXPOSE 8000
 
-# The command that runs when the container starts
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
