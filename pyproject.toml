@@ -10,7 +10,7 @@ target-version = "py313"
 select = ["E", "W", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["main", "routes", "schemas", "services"]
+known-first-party = ["main", "pipeline", "routes", "schemas", "services"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's dependency markers are meant to be called in argument defaults.

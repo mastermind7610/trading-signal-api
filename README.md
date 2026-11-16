@@ -30,6 +30,8 @@ services/
     signal.py            — generates BUY/SELL/HOLD signal with confidence score
     decisions.py         — converts a signal + confidence into a position-sizing decision
     backtest.py          — walk-forward, long-only backtest with next-day fills and trading costs
+pipeline/
+    ledger.py            — one day of paper-trading accounting, by the backtest's rules (no I/O)
 tests/
     test_signal.py       — unit tests for signal generation (no live data)
     test_decisions.py    — unit tests for position-sizing decisions
@@ -40,6 +42,7 @@ tests/
     test_data.py         — unit tests for the data fetch and its error translation (no live data)
     test_api_metadata.py — /health and the generated OpenAPI document
     test_auth.py         — API key check as deployed: 401, 503 when unconfigured, public routes
+    test_ledger.py       — day-by-day ledger accounting must match run_backtest (no live data)
     conftest.py          — switches the API key check off for every other test
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
@@ -91,7 +94,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 128 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 152 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 ---
 
