@@ -81,7 +81,7 @@ For development and running the tests:
 pip install -r requirements-dev.txt
 ```
 
-`requirements.txt` holds the runtime dependencies with exact version pins and is what the Docker image installs. `requirements-dev.txt` adds pytest and httpx (FastAPI's test client needs it) on top of it.
+`requirements.txt` holds the runtime dependencies with exact version pins and is what the Docker image installs. `requirements-dev.txt` adds pytest, httpx (FastAPI's test client needs it) and ruff on top of it.
 
 ---
 
@@ -173,6 +173,18 @@ docker run --rm -p 8000:8000 -e API_KEY="<your-local-key>" trading-simms
 ```
 
 The image is built on `python:3.13.3-slim`, installs only `requirements.txt` (no test tools), copies only `main.py`, `routes/`, `schemas/` and `services/`, and runs uvicorn as an unprivileged user (`app`, UID 10001). It needs outbound internet access to reach Yahoo Finance.
+
+---
+
+## Deployment
+
+Version 1.0.0 (tag `v1.0.0`) runs on Azure Container Apps. The interactive docs are public:
+
+**https://trading-simms.livelyflower-a997e4bc.canadacentral.azurecontainerapps.io/docs**
+
+`/health`, `/docs` and `/openapi.json` answer without a key. `/signal` and `/backtest` require an API key, which is not provided.
+
+Deploys are automatic. Every push to `main` runs the lint and test job and, if it passes, builds the image on the GitHub runner, pushes it to Azure Container Registry tagged with the commit SHA, and points the container app at the new image. Pull requests into `main` run the lint and test job only and never deploy. The workflow is `.github/workflows/deploy.yml`; the app's `API_KEY` is set once on Azure, as described in [Setting the key on Azure Container Apps](#setting-the-key-on-azure-container-apps).
 
 ---
 
