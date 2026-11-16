@@ -186,6 +186,8 @@ Version 1.0.0 (tag `v1.0.0`) runs on Azure Container Apps. The interactive docs 
 
 Deploys are automatic. Every push to `main` runs the lint and test job and, if it passes, builds the image on the GitHub runner, pushes it to Azure Container Registry tagged with the commit SHA, and points the container app at the new image. Pull requests into `main` run the lint and test job only and never deploy. The workflow is `.github/workflows/deploy.yml`; the app's `API_KEY` is set once on Azure, as described in [Setting the key on Azure Container Apps](#setting-the-key-on-azure-container-apps).
 
+**Live timing.** The slowest request the API accepts is a 10-year `/backtest`. Three consecutive runs for AAPL against the deployed app on 2026-11-15 took 3.5 s, 3.0 s and 3.0 s, end to end, including the Yahoo Finance fetch. That is well under the 10-second budget set for it, so the API has no result cache: every request is computed from fresh data. The first request after the app has been idle can take about 20 seconds while the container wakes; requests after that are served at the speeds above.
+
 ---
 
 ## Endpoints
