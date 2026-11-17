@@ -1,135 +1,23 @@
-import random
-from datetime import date
-
 import pandas as pd
 import pytest
 
-from pipeline.daily import DEFAULT_STARTING_EQUITY, LedgerGapError, run_daily
-from pipeline.ledger import AccountState, apply_day
-from pipeline.repository import (
-    InMemoryLedgerRepository,
-    LedgerEntry,
-    OutOfOrderEntryError,
+from ledger_samples import (
+    DAY_AFTER_HOLIDAY,
+    DAY_BEFORE_HOLIDAY,
+    HOLIDAY,
+    bar_dates,
+    bars_through,
+    sample_prices,
 )
+from pipeline.daily import DEFAULT_STARTING_EQUITY, LedgerGapError, run_daily
+from pipeline.repository import InMemoryLedgerRepository
 from services import backtest as backtest_service
 from services.backtest import run_backtest
 from services.signal import REQUIRED_FEATURE_COLUMNS
 
-# US Thanksgiving 2026: a weekday with no trading, so no price bar.
-HOLIDAY = date(2026, 11, 26)
-DAY_BEFORE_HOLIDAY = date(2026, 11, 25)
-DAY_AFTER_HOLIDAY = date(2026, 11, 27)
-
-
-def _prices(length=120, seed=2, end="2026-12-04"):
-    """Deterministic noisy daily bars on weekdays ending at `end`, skipping
-    the holiday. Opens gap away from the previous close.
-
-    The default seed is one whose last two weeks buy and sell, so the tests
-    on those days are not comparing an account that sat in cash throughout.
-    """
-    days = pd.bdate_range(end=end, periods=length + 1)
-    days = days[days != pd.Timestamp(HOLIDAY)][-length:]
-
-    rng = random.Random(seed)
-    opens, closes = [], []
-    close = 100.0
-    for _ in range(length):
-        open_price = close * (1 + rng.gauss(0.0, 0.004))
-        close = open_price * (1 + rng.gauss(0.0005, 0.015))
-        opens.append(round(open_price, 2))
-        closes.append(round(close, 2))
-
-    return pd.DataFrame({"Open": opens, "Close": closes}, index=days)
-
-
-def _through(price_data, day):
-    """The bars a run on `day` would see: everything up to and including it."""
-    return price_data[price_data.index <= pd.Timestamp(day)]
-
-
-def _dates(price_data):
-    return [timestamp.date() for timestamp in price_data.index]
-
-
-def _entry(symbol, trade_date):
-    day = apply_day(
-        AccountState(equity=DEFAULT_STARTING_EQUITY),
-        prev_close=100.0,
-        open_price=100.0,
-        close_price=101.0,
-        target_pct=0.05,
-    )
-    return LedgerEntry(
-        symbol=symbol,
-        trade_date=trade_date,
-        signal_date=date(2026, 1, 1),
-        signal="BUY",
-        confidence=0.7,
-        reason="ma_crossover_bullish",
-        prev_close=100.0,
-        open_price=100.0,
-        close_price=101.0,
-        day=day,
-    )
-
-
-# --- the repository ---------------------------------------------------------
-
-
-def test_empty_repository_has_no_latest_entry_and_no_history():
-    repository = InMemoryLedgerRepository()
-
-    assert repository.latest("TEST") is None
-    assert repository.history("TEST") == []
-
-
-def test_repository_returns_entries_oldest_first_and_the_latest():
-    repository = InMemoryLedgerRepository()
-    first = _entry("TEST", date(2026, 11, 2))
-    second = _entry("TEST", date(2026, 11, 3))
-
-    repository.append(first)
-    repository.append(second)
-
-    assert repository.history("TEST") == [first, second]
-    assert repository.latest("TEST") == second
-
-
-@pytest.mark.parametrize("trade_date", [date(2026, 11, 3), date(2026, 11, 2)])
-def test_repository_rejects_an_entry_that_is_not_later_than_the_latest(trade_date):
-    repository = InMemoryLedgerRepository()
-    repository.append(_entry("TEST", date(2026, 11, 3)))
-
-    with pytest.raises(OutOfOrderEntryError):
-        repository.append(_entry("TEST", trade_date))
-
-    assert len(repository.history("TEST")) == 1
-
-
-def test_repository_keeps_each_symbol_separately():
-    repository = InMemoryLedgerRepository()
-    repository.append(_entry("AAA", date(2026, 11, 3)))
-    repository.append(_entry("BBB", date(2026, 11, 2)))
-
-    assert [entry.symbol for entry in repository.history("AAA")] == ["AAA"]
-    assert repository.latest("BBB").trade_date == date(2026, 11, 2)
-
-
-def test_editing_the_returned_history_does_not_change_the_ledger():
-    repository = InMemoryLedgerRepository()
-    repository.append(_entry("TEST", date(2026, 11, 3)))
-
-    repository.history("TEST").clear()
-
-    assert len(repository.history("TEST")) == 1
-
-
-# --- the daily run ----------------------------------------------------------
-
 
 def test_first_run_opens_the_account_on_the_latest_bar():
-    price_data = _prices()
+    price_data = sample_prices()
     repository = InMemoryLedgerRepository()
 
     recorded = run_daily(" test ", price_data, repository, starting_equity=5_000.0)
@@ -138,7 +26,7 @@ def test_first_run_opens_the_account_on_the_latest_bar():
     assert repository.history("TEST") == recorded
 
     entry = recorded[0]
-    dates = _dates(price_data)
+    dates = bar_dates(price_data)
     assert entry.symbol == "TEST"
     assert entry.trade_date == dates[-1]
     assert entry.signal_date == dates[-2]
@@ -151,7 +39,7 @@ def test_first_run_opens_the_account_on_the_latest_bar():
 
 
 def test_running_twice_on_the_same_prices_records_the_day_once():
-    price_data = _prices()
+    price_data = sample_prices()
     repository = InMemoryLedgerRepository()
 
     first = run_daily("TEST", price_data, repository)
@@ -165,10 +53,10 @@ def test_running_twice_on_the_same_prices_records_the_day_once():
 
 
 def test_rerun_after_several_days_changes_nothing():
-    price_data = _prices()
+    price_data = sample_prices()
     repository = InMemoryLedgerRepository()
-    for day in _dates(price_data)[-5:]:
-        run_daily("TEST", _through(price_data, day), repository)
+    for day in bar_dates(price_data)[-5:]:
+        run_daily("TEST", bars_through(price_data, day), repository)
     before = repository.history("TEST")
 
     assert run_daily("TEST", price_data, repository) == []
@@ -177,15 +65,15 @@ def test_rerun_after_several_days_changes_nothing():
 
 
 def test_run_on_a_holiday_records_nothing():
-    price_data = _prices()
-    assert HOLIDAY not in _dates(price_data)
+    price_data = sample_prices()
+    assert HOLIDAY not in bar_dates(price_data)
     repository = InMemoryLedgerRepository()
 
-    run_daily("TEST", _through(price_data, DAY_BEFORE_HOLIDAY), repository)
+    run_daily("TEST", bars_through(price_data, DAY_BEFORE_HOLIDAY), repository)
     before = repository.history("TEST")
 
     # On the holiday the newest bar is still the day before's.
-    recorded = run_daily("TEST", _through(price_data, HOLIDAY), repository)
+    recorded = run_daily("TEST", bars_through(price_data, HOLIDAY), repository)
 
     assert recorded == []
     assert repository.history("TEST") == before
@@ -193,12 +81,12 @@ def test_run_on_a_holiday_records_nothing():
 
 
 def test_day_after_a_holiday_follows_on_from_the_day_before_it():
-    price_data = _prices()
+    price_data = sample_prices()
     repository = InMemoryLedgerRepository()
-    run_daily("TEST", _through(price_data, DAY_BEFORE_HOLIDAY), repository)
-    run_daily("TEST", _through(price_data, HOLIDAY), repository)
+    run_daily("TEST", bars_through(price_data, DAY_BEFORE_HOLIDAY), repository)
+    run_daily("TEST", bars_through(price_data, HOLIDAY), repository)
 
-    recorded = run_daily("TEST", _through(price_data, DAY_AFTER_HOLIDAY), repository)
+    recorded = run_daily("TEST", bars_through(price_data, DAY_AFTER_HOLIDAY), repository)
 
     assert [entry.trade_date for entry in recorded] == [DAY_AFTER_HOLIDAY]
     entry = recorded[0]
@@ -212,18 +100,18 @@ def test_day_after_a_holiday_follows_on_from_the_day_before_it():
 
 @pytest.mark.parametrize("missed", [1, 3, 10])
 def test_catch_up_after_missed_days_matches_running_every_day(missed):
-    price_data = _prices()
-    dates = _dates(price_data)
+    price_data = sample_prices()
+    dates = bar_dates(price_data)
     window = dates[-(missed + 2) :]
 
     every_day = InMemoryLedgerRepository()
     for day in window:
-        run_daily("TEST", _through(price_data, day), every_day)
+        run_daily("TEST", bars_through(price_data, day), every_day)
 
     # Runs on the first day, misses `missed` days, then runs on the last.
     caught_up = InMemoryLedgerRepository()
-    run_daily("TEST", _through(price_data, window[0]), caught_up)
-    recorded = run_daily("TEST", _through(price_data, window[-1]), caught_up)
+    run_daily("TEST", bars_through(price_data, window[0]), caught_up)
+    recorded = run_daily("TEST", bars_through(price_data, window[-1]), caught_up)
 
     assert [entry.trade_date for entry in recorded] == window[1:]
     assert caught_up.history("TEST") == every_day.history("TEST")
@@ -232,9 +120,9 @@ def test_catch_up_after_missed_days_matches_running_every_day(missed):
 
 
 def test_catch_up_carries_the_account_from_one_day_to_the_next():
-    price_data = _prices()
+    price_data = sample_prices()
     repository = InMemoryLedgerRepository()
-    run_daily("TEST", _through(price_data, _dates(price_data)[-8]), repository)
+    run_daily("TEST", bars_through(price_data, bar_dates(price_data)[-8]), repository)
     run_daily("TEST", price_data, repository)
 
     history = repository.history("TEST")
@@ -252,7 +140,7 @@ def test_catch_up_carries_the_account_from_one_day_to_the_next():
 
 @pytest.mark.parametrize("seed", [0, 1])
 def test_daily_runs_over_a_whole_history_match_run_backtest(seed):
-    price_data = _prices(length=300, seed=seed)
+    price_data = sample_prices(length=300, seed=seed)
     expected = run_backtest("TEST", price_data)
 
     # Start the account on the backtest's first traded day, then run daily.
@@ -264,8 +152,8 @@ def test_daily_runs_over_a_whole_history_match_run_backtest(seed):
     )
     start = int(features_ready.argmax())
     repository = InMemoryLedgerRepository()
-    for day in _dates(price_data)[start + 1 :]:
-        run_daily("TEST", _through(price_data, day), repository)
+    for day in bar_dates(price_data)[start + 1 :]:
+        run_daily("TEST", bars_through(price_data, day), repository)
 
     history = repository.history("TEST")
     returns = pd.Series([entry.day.daily_return for entry in history])
@@ -285,9 +173,9 @@ def test_daily_runs_over_a_whole_history_match_run_backtest(seed):
 
 
 def test_ledger_older_than_the_price_data_is_refused_not_skipped():
-    price_data = _prices()
+    price_data = sample_prices()
     repository = InMemoryLedgerRepository()
-    run_daily("TEST", _through(price_data, _dates(price_data)[-10]), repository)
+    run_daily("TEST", bars_through(price_data, bar_dates(price_data)[-10]), repository)
     before = repository.history("TEST")
 
     # The table no longer reaches back to the last recorded day.
@@ -298,7 +186,7 @@ def test_ledger_older_than_the_price_data_is_refused_not_skipped():
 
 
 def test_price_data_older_than_the_ledger_records_nothing():
-    price_data = _prices()
+    price_data = sample_prices()
     repository = InMemoryLedgerRepository()
     run_daily("TEST", price_data, repository)
 
@@ -307,10 +195,10 @@ def test_price_data_older_than_the_ledger_records_nothing():
 
 
 def test_failed_catch_up_records_none_of_the_missed_days():
-    price_data = _prices()
-    dates = _dates(price_data)
+    price_data = sample_prices()
+    dates = bar_dates(price_data)
     repository = InMemoryLedgerRepository()
-    run_daily("TEST", _through(price_data, dates[-6]), repository)
+    run_daily("TEST", bars_through(price_data, dates[-6]), repository)
     before = repository.history("TEST")
 
     broken = price_data.copy()
@@ -323,8 +211,8 @@ def test_failed_catch_up_records_none_of_the_missed_days():
 
 
 def test_bars_without_a_price_are_ignored_like_the_backtest_does():
-    price_data = _prices()
-    dates = _dates(price_data)
+    price_data = sample_prices()
+    dates = bar_dates(price_data)
     with_gap = price_data.copy()
     with_gap.loc[pd.Timestamp(dates[-1]), "Close"] = float("nan")
     repository = InMemoryLedgerRepository()
@@ -335,7 +223,7 @@ def test_bars_without_a_price_are_ignored_like_the_backtest_does():
 
 
 def test_thin_history_holds_cash():
-    price_data = _prices().iloc[-10:]
+    price_data = sample_prices().iloc[-10:]
     repository = InMemoryLedgerRepository()
 
     recorded = run_daily("TEST", price_data, repository)
@@ -349,27 +237,27 @@ def test_thin_history_holds_cash():
 def test_single_bar_records_nothing():
     repository = InMemoryLedgerRepository()
 
-    assert run_daily("TEST", _prices().iloc[-1:], repository) == []
+    assert run_daily("TEST", sample_prices().iloc[-1:], repository) == []
     assert repository.history("TEST") == []
 
 
 def test_symbols_have_separate_accounts():
     repository = InMemoryLedgerRepository()
 
-    run_daily("AAA", _prices(seed=1), repository)
-    run_daily("BBB", _prices(seed=2), repository)
+    run_daily("AAA", sample_prices(seed=1), repository)
+    run_daily("BBB", sample_prices(seed=2), repository)
 
     assert len(repository.history("AAA")) == 1
     assert len(repository.history("BBB")) == 1
-    assert run_daily("AAA", _prices(seed=1), repository) == []
+    assert run_daily("AAA", sample_prices(seed=1), repository) == []
 
 
 @pytest.mark.parametrize(
     "price_data",
     [
-        _prices().drop(columns=["Open"]),
-        _prices().reset_index(drop=True),
-        _prices().iloc[::-1],
+        sample_prices().drop(columns=["Open"]),
+        sample_prices().reset_index(drop=True),
+        sample_prices().iloc[::-1],
     ],
     ids=["no_open_column", "not_indexed_by_date", "newest_first"],
 )
@@ -392,4 +280,4 @@ def test_run_daily_rejects_invalid_arguments(arguments):
     symbol = call.pop("symbol")
 
     with pytest.raises(ValueError):
-        run_daily(symbol, _prices(), InMemoryLedgerRepository(), **call)
+        run_daily(symbol, sample_prices(), InMemoryLedgerRepository(), **call)

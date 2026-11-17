@@ -3,7 +3,8 @@
 The daily run reads the account's last recorded day and appends new ones
 through the LedgerRepository interface, so the storage behind it can change
 without touching the run. InMemoryLedgerRepository is the implementation
-used by the tests; it keeps nothing between processes.
+used by the tests; it keeps nothing between processes. The one that keeps
+the ledger in a database is in pipeline/mongo_repository.py.
 """
 
 from dataclasses import dataclass
@@ -41,11 +42,20 @@ class OutOfOrderEntryError(ValueError):
     """An entry is not later than the last one recorded for its symbol."""
 
 
+class LedgerStorageError(Exception):
+    """The storage behind a repository could not be read or written.
+
+    Raised by repositories that keep the ledger somewhere that can fail, so
+    callers can handle an outage without knowing which database is in use.
+    """
+
+
 class LedgerRepository(Protocol):
     """Append-only storage for ledger entries, one history per symbol.
 
     Each symbol's entries are in strictly increasing trade_date order, so a
-    symbol has at most one entry per day.
+    symbol has at most one entry per day. Any method may raise
+    LedgerStorageError if the storage cannot be reached.
     """
 
     def latest(self, symbol: str) -> LedgerEntry | None:

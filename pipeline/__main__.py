@@ -1,0 +1,8 @@
+"""Lets the daily run be started with `python -m pipeline`. See pipeline/cli.py."""
+
+import sys
+
+from pipeline.cli import main
+
+if __name__ == "__main__":
+    sys.exit(main())
