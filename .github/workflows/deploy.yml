@@ -10,6 +10,7 @@ on:
 env:
   IMAGE: ${{ secrets.REGISTRY }}/trading-simms:${{ github.sha }}
   APP_NAME: trading-simms
+  JOB_NAME: trading-simms-daily-run
   RESOURCE_GROUP: trading-simms-rg
 
 jobs:
@@ -78,3 +79,23 @@ jobs:
             --name $APP_NAME \
             --resource-group $RESOURCE_GROUP \
             --image $IMAGE
+
+      # Keep the scheduled daily run (python -m pipeline) on the same image as
+      # the API. The job is created once by hand from an image that contains
+      # the pipeline (README: Running it on a schedule in Azure), so the deploy
+      # that first ships that image runs before the job exists: only then is
+      # this step skipped, with a warning. Any other failure fails the deploy.
+      - name: Update daily-run job
+        run: |
+          found=$(az containerapp job list \
+            --resource-group $RESOURCE_GROUP \
+            --query "length([?name=='$JOB_NAME'])" \
+            --output tsv)
+          if [ "$found" = "1" ]; then
+            az containerapp job update \
+              --name $JOB_NAME \
+              --resource-group $RESOURCE_GROUP \
+              --image $IMAGE
+          else
+            echo "::warning::Container Apps job $JOB_NAME does not exist yet, so it was not moved to $IMAGE. Create it as the README describes."
+          fi

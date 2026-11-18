@@ -62,7 +62,7 @@ requirements.txt         — runtime dependencies, exact pins (what the Docker i
 requirements-dev.txt     — the above plus pytest, httpx and ruff
 pyproject.toml           — ruff (lint + import-order) configuration; no packaging metadata
 Dockerfile               — production image: runtime deps only, explicit copies, non-root user
-.github/workflows/deploy.yml — CI: lint and test every PR into main; on a push to main, also build, push and deploy the image to Azure Container Apps
+.github/workflows/deploy.yml — CI: lint and test every PR into main; on a push to main, also build and push the image and move the container app and the daily-run job to it
 ```
 
 **Data flow:**
@@ -198,6 +198,8 @@ The same image runs the [daily paper-trading run](#daily-paper-trading-run) when
 docker run --rm -e MONGODB_URI="<connection-string>" trading-simms python -m pipeline SPY AAPL
 ```
 
+`paper-ledger SPY AAPL` is the same command. It exists for the [scheduled job on Azure](#running-it-on-a-schedule-in-azure), whose arguments cannot start with a dash.
+
 ---
 
 ## Deployment
@@ -208,7 +210,7 @@ Version 1.0.0 (tag `v1.0.0`) runs on Azure Container Apps. The interactive docs 
 
 `/health`, `/docs` and `/openapi.json` answer without a key. `/signal` and `/backtest` require an API key, which is not provided.
 
-Deploys are automatic. Every push to `main` runs the lint and test job and, if it passes, builds the image on the GitHub runner, pushes it to Azure Container Registry tagged with the commit SHA, and points the container app at the new image. Pull requests into `main` run the lint and test job only and never deploy. The workflow is `.github/workflows/deploy.yml`; the app's `API_KEY` is set once on Azure, as described in [Setting the key on Azure Container Apps](#setting-the-key-on-azure-container-apps).
+Deploys are automatic. Every push to `main` runs the lint and test job and, if it passes, builds the image on the GitHub runner, pushes it to Azure Container Registry tagged with the commit SHA, and points the container app and the [daily-run job](#running-it-on-a-schedule-in-azure) at the new image. Pull requests into `main` run the lint and test job only and never deploy. The workflow is `.github/workflows/deploy.yml`; the app's `API_KEY` is set once on Azure, as described in [Setting the key on Azure Container Apps](#setting-the-key-on-azure-container-apps).
 
 **Live timing.** The slowest request the API accepts is a 10-year `/backtest`. Three consecutive runs for AAPL against the deployed app on 2026-11-15 took 3.5 s, 3.0 s and 3.0 s, end to end, including the Yahoo Finance fetch. That is well under the 10-second budget set for it, so the API has no result cache: every request is computed from fresh data. The first request after the app has been idle can take about 20 seconds while the container wakes; requests after that are served at the speeds above.
 
@@ -438,10 +440,65 @@ A run compares the ledger with the daily prices and records the trading days the
 - **Run twice.** The second run finds nothing missing and records nothing.
 - **Weekend or holiday.** There is no new price bar, so there is nothing to record.
 - **Missed days.** The next run records every missing day in order, with the same result as if it had run on each of them.
-- **A day still trading.** While a market is open Yahoo Finance already returns a bar for the day, with the latest price in place of the close. A day is recorded only once its date is over in the exchange's own timezone, because a recorded day is never recomputed. So a US trading day is recorded by the first run after midnight in New York: run the command once a day after that, for example at 06:00 UTC from Tuesday to Saturday.
+- **A day still trading.** While a market is open Yahoo Finance already returns a bar for the day, with the latest price in place of the close. A day is recorded only once its date is over in the exchange's own timezone, because a recorded day is never recomputed. So a US trading day is recorded by the first run after midnight in New York: run the command once a day after that, for example at 06:00 UTC from Tuesday to Saturday, as the [Azure job](#running-it-on-a-schedule-in-azure) does.
 - **A gap it cannot fill.** Each run fetches two years of daily prices. If the ledger's last day is older than that, the run stops with an error instead of skipping the days in between.
 
 Two years is far more history than the signal needs. It is fetched because the MACD is an exponential average that never fully forgets its first bar, and the fetch window starts a day later each day. After about 500 bars that first bar's weight is around 2e-17, too small to change a signal, so a day gets the same signal whichever day it is computed on.
+
+### Running it on a schedule in Azure
+
+The daily run is an Azure Container Apps job, `trading-simms-daily-run`, in the same environment as the API and on the same image. It runs `paper-ledger SPY AAPL MSFT NVDA` at 06:00 UTC from Tuesday to Saturday. That is 01:00 in New York in winter and 02:00 in summer, so each weekday's session is over and its date has passed there, and the run records it. A run straight after the 16:00 close would not record that day yet, because a day is recorded only once its date is over in New York. A holiday has no bar, so that morning's run records nothing.
+
+The job reads `MONGODB_URI` from its own secret: a Container Apps job does not see the API's secrets. It writes the ledger, so its database user needs `readWrite` on `trading_simms`, where the API's needs only `read`. Each deploy moves the job to the new image along with the API. Until the job exists, the deploy skips that step with a warning.
+
+Create it once, after a deploy has put an image containing `pipeline/` on the container app. The commands are PowerShell, and they read the environment, image and registry from the container app. The password and connection string stay in shell variables and are never printed. Keeping the connection string to one query option keeps `&` out of it, which `az.cmd` would mangle.
+
+```powershell
+az login
+atlas auth login
+
+$rg = "trading-simms-rg"
+$job = "trading-simms-daily-run"
+$project = "<atlas-project-id>"      # atlas projects list
+$cluster = "<atlas-cluster-name>"    # atlas clusters list --projectId $project
+
+# A database user that can write the ledger, scoped to trading_simms
+$user = "trading-simms-pipeline"
+$password = python -c "import secrets; print(secrets.token_urlsafe(32))"
+atlas dbusers create --username $user --password $password --role readWrite@trading_simms --projectId $project
+
+$srv = (atlas clusters connectionStrings describe $cluster --projectId $project --output json | ConvertFrom-Json).standardSrv
+if (-not $srv) { throw "No standardSrv in the output: check the field name with --output json." }
+$hostName = ($srv -replace '^mongodb\+srv://', '').TrimEnd('/')
+$uri = "mongodb+srv://${user}:${password}@${hostName}/trading_simms?authSource=admin"
+
+# The API's environment, image and registry
+$environment = az containerapp show --name trading-simms --resource-group $rg --query properties.environmentId --output tsv
+$image = az containerapp show --name trading-simms --resource-group $rg --query "properties.template.containers[0].image" --output tsv
+$registry = $image.Split('/')[0]
+$acr = $registry.Split('.')[0]
+$acrUser = az acr credential show --name $acr --query username --output tsv
+$acrPassword = az acr credential show --name $acr --query "passwords[0].value" --output tsv
+
+az containerapp job create --name $job --resource-group $rg --environment $environment `
+  --trigger-type Schedule --cron-expression "0 6 * * 2-6" `
+  --replica-timeout 600 --replica-retry-limit 1 --replica-completion-count 1 --parallelism 1 `
+  --image $image --cpu 0.5 --memory 1.0Gi `
+  --registry-server $registry --registry-username $acrUser --registry-password $acrPassword `
+  --secrets "mongodb-uri=$uri" --env-vars "MONGODB_URI=secretref:mongodb-uri" `
+  --command "paper-ledger" --args "SPY" "AAPL" "MSFT" "NVDA"
+
+Remove-Variable password, uri, acrPassword
+```
+
+Run it once straight away rather than wait for the schedule, then check how it went:
+
+```powershell
+az containerapp job start --name $job --resource-group $rg
+az containerapp job execution list --name $job --resource-group $rg --output table
+```
+
+An execution fails when the command exits non-zero: `1` if any symbol failed, `2` if `MONGODB_URI` is missing or malformed. A failed execution is retried once. That is safe because a run never records a day twice, and a symbol that still fails is caught up by the next morning's run. The job runs in the API's environment and connects from that environment's outbound addresses, so the Atlas access list entries added for the API should cover it. If the first execution fails on the database, check those entries first. To change the symbols, run `az containerapp job update --name $job --resource-group $rg --args "SPY" "QQQ"`. The ledger keeps the days already recorded for symbols that are dropped.
 
 ### Where the ledger is kept
 

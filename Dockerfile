@@ -30,6 +30,14 @@ COPY --chown=app:app services ./services
 # `python -m pipeline SYMBOL ...` runs this instead.
 COPY --chown=app:app pipeline ./pipeline
 
+# The same run as `paper-ledger SYMBOL ...`, the command the scheduled
+# Container Apps job uses. The Azure CLI reads any value that starts with
+# "-" as one of its own options, so it cannot pass `-m pipeline` as the
+# job's arguments; this command needs no dashes. Written here rather than
+# copied so a Windows checkout's line endings cannot break the #! line.
+RUN printf '#!/bin/sh\nexec python -m pipeline "$@"\n' > /usr/local/bin/paper-ledger \
+    && chmod 755 /usr/local/bin/paper-ledger
+
 USER app
 
 EXPOSE 8000
