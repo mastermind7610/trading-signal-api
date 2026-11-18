@@ -1,0 +1,86 @@
+{
+  "downloaded_at": "2026-11-18T03:05:48+00:00",
+  "source": "yfinance Ticker.history",
+  "request": {
+    "first_day": "2011-11-17",
+    "last_day": "2026-11-16",
+    "interval": "1d",
+    "auto_adjust": true
+  },
+  "versions": {
+    "yfinance": "1.3.0",
+    "pandas": "3.0.2"
+  },
+  "files": {
+    "SPY": {
+      "file": "SPY.csv",
+      "sha256": "7d34568aefa14aa56c1bf5bed3a7702e114914b9158e199bc8e307e9bf92a0ae",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "AAPL": {
+      "file": "AAPL.csv",
+      "sha256": "762a5ccab752d5f2a37c996efefe374c8ede2d6851b4c6509154b1e8acc4043d",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "MSFT": {
+      "file": "MSFT.csv",
+      "sha256": "2e2110f59fc0535ed1873c34932625bb86f6d4f96215a34b82264ce7a561826f",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "NVDA": {
+      "file": "NVDA.csv",
+      "sha256": "d2f7f2f6a1fb9f8dd1a8b80998e9647497140a2c71c7c80a1269f38a8d34b2a1",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "JPM": {
+      "file": "JPM.csv",
+      "sha256": "810533dd653a9a48da474466f137d0fd88974194afc1ef17c6da0e39cefefb59",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "JNJ": {
+      "file": "JNJ.csv",
+      "sha256": "8bcae07b0b4099b43900b63b1fb260766c14e27aebaa6dda79a30611242926b9",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "XOM": {
+      "file": "XOM.csv",
+      "sha256": "c23a06e60f70485bdd8712e2128cfea862af05ea76a3383898a2890bee6003b7",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "PG": {
+      "file": "PG.csv",
+      "sha256": "9f9ae88f99968190b633f847e254c3a30ff31cbf94c242cb11ca2903134a0a15",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "HD": {
+      "file": "HD.csv",
+      "sha256": "3662c5035bca7c3c7ca31607119f7ef4b56ee1fb290e31c7f93d6f1d958f18e3",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    },
+    "CAT": {
+      "file": "CAT.csv",
+      "sha256": "c8a124c77e97699de41b4063b1712841fbd0c039ab178aedfcd119ef693466df",
+      "rows": 3770,
+      "first_day": "2011-11-17",
+      "last_day": "2026-11-16"
+    }
+  }
+}
