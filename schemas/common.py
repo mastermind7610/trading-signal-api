@@ -1,4 +1,7 @@
-from pydantic import BaseModel, Field, field_validator
+from typing import Annotated
+
+from fastapi import Path
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 # Yahoo Finance ticker syntax: letters and digits, plus "." or "-" for share
 # classes (BRK.B, BRK-B), "^" for indices (^GSPC) and "=" for FX and futures
@@ -6,6 +9,15 @@ from pydantic import BaseModel, Field, field_validator
 # the pattern is checked, so " aapl " is accepted and echoed back as "AAPL".
 SYMBOL_MAX_LENGTH = 12
 SYMBOL_PATTERN = r"^[A-Z0-9.\-^=]+$"
+SYMBOL_DESCRIPTION = "Ticker symbol as used by Yahoo Finance, e.g. AAPL, BRK-B, ^GSPC."
+
+
+def normalize_symbol(value):
+    # Runs before the length and pattern checks, so "  aapl " passes and
+    # "   " fails min_length rather than slipping through as whitespace.
+    if isinstance(value, str):
+        return value.strip().upper()
+    return value
 
 
 class SymbolRequest(BaseModel):
@@ -15,18 +27,28 @@ class SymbolRequest(BaseModel):
         min_length=1,
         max_length=SYMBOL_MAX_LENGTH,
         pattern=SYMBOL_PATTERN,
-        description="Ticker symbol as used by Yahoo Finance, e.g. AAPL, BRK-B, ^GSPC.",
+        description=SYMBOL_DESCRIPTION,
         examples=["AAPL"],
     )
 
     @field_validator("symbol", mode="before")
     @classmethod
     def _normalize_symbol(cls, value):
-        # Runs before the length and pattern checks, so "  aapl " passes and
-        # "   " fails min_length rather than slipping through as whitespace.
-        if isinstance(value, str):
-            return value.strip().upper()
-        return value
+        return normalize_symbol(value)
+
+
+# The same rules for endpoints that take the symbol in the URL path.
+SymbolPath = Annotated[
+    str,
+    BeforeValidator(normalize_symbol),
+    Path(
+        min_length=1,
+        max_length=SYMBOL_MAX_LENGTH,
+        pattern=SYMBOL_PATTERN,
+        description=SYMBOL_DESCRIPTION,
+        examples=["AAPL"],
+    ),
+]
 
 
 class ErrorResponse(BaseModel):

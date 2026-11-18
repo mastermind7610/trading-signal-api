@@ -19,11 +19,13 @@ main.py                  — FastAPI app, router registration, error handlers, /
 routes/
     signal.py            — POST /signal  (HTTP in/out only)
     backtest.py          — POST /backtest (HTTP in/out only)
-    auth.py              — X-API-Key check applied to both routes
+    ledger.py            — GET /ledger/{symbol}: reads the daily run's ledger from MongoDB
+    auth.py              — X-API-Key check applied to every route except /health
 schemas/
-    common.py            — SymbolRequest: symbol validation shared by both requests
+    common.py            — symbol validation shared by every route: SymbolRequest (body), SymbolPath (URL)
     signal.py            — SignalRequest, SignalResponse
     backtest.py          — BacktestRequest, BacktestResponse
+    ledger.py            — LedgerResponse
 services/
     data.py              — fetches market data via yfinance; raises NoPriceDataError (404) or MarketDataUnavailableError (503)
     features.py          — computes daily returns, moving averages, volatility, trend slope, price position, RSI, MACD
@@ -42,6 +44,7 @@ tests/
     test_backtest.py     — unit tests for backtest engine (no live data)
     test_features.py     — unit tests for feature calculations
     test_backtest_route.py — HTTP-layer tests via TestClient (no live data)
+    test_ledger_route.py — GET /ledger: entries, symbol validation, 404, 503s, read-only (no database)
     test_validation.py   — request validation for both endpoints (no live data)
     test_data.py         — unit tests for the data fetch and its error translation (no live data)
     test_api_metadata.py — /health and the generated OpenAPI document
@@ -66,6 +69,7 @@ Dockerfile               — production image: runtime deps only, explicit copie
 
 - `/signal`: `routes/signal` → `services/data` → `services/features` → `services/signal` → `services/decisions`
 - `/backtest`: `routes/backtest` → `services/data` → `services/backtest` (which calls `services/features`, `services/signal` and `services/decisions` internally)
+- `/ledger/{symbol}`: `routes/ledger` → `pipeline/mongo_repository` (written by `python -m pipeline`, never by the API)
 
 ---
 
@@ -103,7 +107,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 237 tests should pass, and 10 more are reported as skipped. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 259 tests should pass, and 10 more are reported as skipped. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 The 10 skipped tests check the ledger's MongoDB storage against a real database, so they run only when `MONGODB_URI` is set: see [Testing the MongoDB storage](#testing-the-mongodb-storage).
 
@@ -125,15 +129,15 @@ Ruff enforces pycodestyle, pyflakes, import order, bugbear and pyupgrade rules; 
 uvicorn main:app --reload
 ```
 
-The server starts at `http://127.0.0.1:8000`. `/signal` and `/backtest` answer `503` until an API key is configured: see [Authentication](#authentication) for the one-line setup.
+The server starts at `http://127.0.0.1:8000`. `/signal`, `/backtest` and `/ledger` answer `503` until an API key is configured: see [Authentication](#authentication) for the one-line setup. `/ledger` also needs `MONGODB_URI`: see [Reading the ledger](#reading-the-ledger).
 
 ---
 
 ## Authentication
 
-`/signal` and `/backtest` require an API key in the `X-API-Key` header. `/health`, `/docs` and `/openapi.json` are public.
+`/signal`, `/backtest` and `/ledger` require an API key in the `X-API-Key` header. `/health`, `/docs` and `/openapi.json` are public.
 
-The server reads the accepted key from the `API_KEY` environment variable. It **fails closed**: if `API_KEY` is not set, both endpoints answer `503` rather than running open. A missing or wrong key gets `401`.
+The server reads the accepted key from the `API_KEY` environment variable. It **fails closed**: if `API_KEY` is not set, all three endpoints answer `503` rather than running open. A missing or wrong key gets `401`, and the key is checked before anything else, so `/ledger` reveals nothing about its database to a caller without one.
 
 ### Running locally with a key
 
@@ -217,8 +221,9 @@ Deploys are automatic. Every push to `main` runs the lint and test job and, if i
 | GET | `/health` | Health check; returns `{"status": "ok", "version": "..."}` |
 | POST | `/signal` | Generate a trading signal for a symbol |
 | POST | `/backtest` | Run a historical backtest for a symbol |
+| GET | `/ledger/{symbol}` | Read the paper-trading ledger the daily run keeps for a symbol (see [Reading the ledger](#reading-the-ledger)) |
 
-**Input validation and errors.** `symbol` must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
+**Input validation and errors.** `symbol`, in a request body or in the `/ledger` path, must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
 
 When Yahoo Finance returns no rows for a symbol the API returns `404` with `No price data found for symbol: X`. This also happens when Yahoo rate-limits requests, so it does not always mean the symbol is unknown. When Yahoo Finance cannot be reached or fails, the API returns `503` with a `Retry-After` header. Each request to Yahoo times out after 10 seconds. A missing or wrong API key returns `401`.
 
@@ -226,7 +231,7 @@ When Yahoo Finance returns no rows for a symbol the API returns `404` with `No p
 
 ## Testing with Swagger UI
 
-Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The docs carry a description of each endpoint, example requests and responses, and the error responses (`401`, `404`, `422`, `503`) with their shape. Click **Authorize** and enter your API key before trying `/signal` or `/backtest` (see [Authentication](#authentication)).
+Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The docs carry a description of each endpoint, example requests and responses, and the error responses (`401`, `404`, `422`, `503`) with their shape. Click **Authorize** and enter your API key before trying `/signal`, `/backtest` or `/ledger` (see [Authentication](#authentication)).
 
 ### Test /signal
 
@@ -472,6 +477,50 @@ There is one document per symbol per trading day. This is the AAPL day from the 
 `signal_date` is the day whose close produced the signal. `trade_date` is the next trading day, when the order filled at the open and the account was valued at the close. Positions and costs are fractions of the account, as in the backtest. `equity`, `position_value` and `cash` describe the account at that day's close.
 
 A unique index on `symbol` and `trade_date`, created by the first write, means two runs that overlap cannot both record the same day. Every database operation is given 10 seconds, and a database that cannot be reached is reported as a failure for that symbol.
+
+### Reading the ledger
+
+`GET /ledger/{symbol}` returns every day the daily run has recorded for a symbol, oldest first. It takes the same `X-API-Key` as the other endpoints and only reads: the ledger is written by `python -m pipeline`, never through the API.
+
+```bash
+curl http://127.0.0.1:8000/ledger/AAPL -H "X-API-Key: <your-local-key>"
+```
+
+The fields are the stored document's, with the `day` block lifted into each entry:
+
+```json
+{
+  "symbol": "AAPL",
+  "entries": [
+    {
+      "trade_date": "2026-11-13",
+      "signal_date": "2026-11-12",
+      "signal": "BUY",
+      "confidence": 0.68,
+      "reason": "ma_crossover_bullish",
+      "prev_close": 354.8800048828125,
+      "open_price": 357.9599914550781,
+      "close_price": 356.2699890136719,
+      "position_before": 0.0,
+      "position_after": 0.04,
+      "traded_pct": 0.04,
+      "traded": true,
+      "cost_pct": 0.00004,
+      "daily_return": -0.00022884819328959245,
+      "equity": 9997.711518067104,
+      "position_value": 399.9084607226842,
+      "cash": 9597.80305734442
+    }
+  ]
+}
+```
+
+The server reads the ledger from the database `MONGODB_URI` points to, so set it alongside `API_KEY` before starting uvicorn or the container. The API only reads, so its database user needs only the `read` role. One MongoDB client is built per server process and reused by every request.
+
+| Status | When |
+|--------|------|
+| `404` | The daily run has recorded no days for the symbol. |
+| `503` | `MONGODB_URI` is not set on the server or is not a valid connection string, or the database cannot be reached within 10 seconds. The last two also send `Retry-After`. Neither the connection string nor the driver's error, which names the database hosts, appears in the response. |
 
 ### Testing the MongoDB storage
 
