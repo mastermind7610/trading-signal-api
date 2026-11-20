@@ -7,8 +7,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from pipeline.repository import LedgerStorageError
 from routes.auth import API_KEY_ENV_VAR, configured_api_keys
 from routes.backtest import router as backtest_router
+from routes.ledger import router as ledger_router
 from routes.signal import router as signal_router
 from schemas.common import HealthResponse
 from services.data import MarketDataUnavailableError, NoPriceDataError
@@ -32,18 +34,22 @@ orders and connects to no broker.**
 * `POST /backtest` replays that same signal over daily history as a long-only
   strategy with next-day fills and trading costs, and compares it with
   buy-and-hold.
+* `GET /ledger/{symbol}` reads the paper account the daily run keeps for a
+  symbol, one entry per trading day, by the backtest's rules.
 
-`/signal` and `/backtest` require an `X-API-Key` header; use **Authorize** to
-set it here. `/health` and these docs are public.
+`/signal`, `/backtest` and `/ledger` require an `X-API-Key` header; use
+**Authorize** to set it here. `/health` and these docs are public.
 
 Prices come from Yahoo Finance. Errors use a single shape, `{"detail": "..."}`:
-`401` for a missing or wrong key, `404` when no price data is found for the
-symbol, `422` for invalid input and `503` when Yahoo Finance cannot be reached.
+`401` for a missing or wrong key, `404` when no price data (or no ledger) is
+found for the symbol, `422` for invalid input and `503` when Yahoo Finance or
+the ledger database cannot be reached.
 """
 
 OPENAPI_TAGS = [
     {"name": "signals", "description": "Current trading signal and position size for one symbol."},
     {"name": "backtests", "description": "Historical replay of the signal strategy."},
+    {"name": "ledger", "description": "The paper account the daily run keeps, read-only."},
     {"name": "health", "description": "Liveness and deployed version."},
 ]
 
@@ -53,7 +59,7 @@ async def lifespan(app: FastAPI):
     # once at startup rather than leaving it to be discovered from 503s.
     if not configured_api_keys():
         logger.error(
-            "%s is not set: /signal and /backtest will answer 503 until it is.",
+            "%s is not set: /signal, /backtest and /ledger will answer 503 until it is.",
             API_KEY_ENV_VAR,
         )
     yield
@@ -70,6 +76,7 @@ app = FastAPI(
 
 app.include_router(signal_router)
 app.include_router(backtest_router)
+app.include_router(ledger_router)
 
 
 def _json_safe(value):
@@ -102,6 +109,17 @@ async def no_price_data_handler(request: Request, exc: NoPriceDataError):
 
 @app.exception_handler(MarketDataUnavailableError)
 async def market_data_unavailable_handler(request: Request, exc: MarketDataUnavailableError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+        headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+    )
+
+
+@app.exception_handler(LedgerStorageError)
+async def ledger_storage_error_handler(request: Request, exc: LedgerStorageError):
+    # The repository's message is written for callers: it never carries the
+    # driver's text, which names the database hosts, or the connection string.
     return JSONResponse(
         status_code=503,
         content={"detail": str(exc)},

@@ -31,23 +31,40 @@ def test_openapi_routes_are_tagged():
 
     assert paths["/signal"]["post"]["tags"] == ["signals"]
     assert paths["/backtest"]["post"]["tags"] == ["backtests"]
+    assert paths["/ledger/{symbol}"]["get"]["tags"] == ["ledger"]
     assert paths["/health"]["get"]["tags"] == ["health"]
 
 
 def test_openapi_documents_error_responses():
     schema = _openapi()
 
-    for path in ("/signal", "/backtest"):
-        responses = schema["paths"][path]["post"]["responses"]
+    for path, method in (("/signal", "post"), ("/backtest", "post"), ("/ledger/{symbol}", "get")):
+        responses = schema["paths"][path][method]["responses"]
         for status in ("200", "401", "404", "422", "503"):
             assert status in responses, (path, status)
         error_ref = responses["404"]["content"]["application/json"]["schema"]["$ref"]
         assert error_ref.endswith("/ErrorResponse")
 
 
+def test_openapi_ledger_route_takes_the_symbol_in_the_path():
+    operation = _openapi()["paths"]["/ledger/{symbol}"]["get"]
+
+    (parameter,) = operation["parameters"]
+    assert parameter["in"] == "path"
+    assert parameter["name"] == "symbol"
+    assert parameter["schema"]["maxLength"] == 12
+    assert "requestBody" not in operation
+
+
 def test_openapi_models_carry_examples():
     schemas = _openapi()["components"]["schemas"]
 
-    for name in ("SignalRequest", "SignalResponse", "BacktestRequest", "BacktestResponse"):
+    for name in (
+        "SignalRequest",
+        "SignalResponse",
+        "BacktestRequest",
+        "BacktestResponse",
+        "LedgerResponse",
+    ):
         assert schemas[name]["examples"], name
     assert schemas["SignalRequest"]["examples"][0]["symbol"] == "AAPL"

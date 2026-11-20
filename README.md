@@ -8,7 +8,7 @@ A paper trading signal and backtesting system built with FastAPI.
 
 ## Purpose
 
-TRADING_SIMMS generates trading signals (BUY / SELL / HOLD) from a 20/50-day moving average crossover filtered by trend, RSI and MACD checks, translates each signal into a position-sizing decision for a given portfolio, and evaluates strategy performance through historical backtesting. It is a backend-only REST API — no frontend, no database, no broker integration.
+TRADING_SIMMS generates trading signals (BUY / SELL / HOLD) from a 20/50-day moving average crossover filtered by trend, RSI and MACD checks, translates each signal into a position-sizing decision for a given portfolio, and evaluates strategy performance through historical backtesting. A daily command-line run applies the same rules one trading day at a time and keeps the resulting paper account in MongoDB. It is backend-only — no frontend and no broker integration.
 
 ---
 
@@ -19,27 +19,42 @@ main.py                  — FastAPI app, router registration, error handlers, /
 routes/
     signal.py            — POST /signal  (HTTP in/out only)
     backtest.py          — POST /backtest (HTTP in/out only)
-    auth.py              — X-API-Key check applied to both routes
+    ledger.py            — GET /ledger/{symbol}: reads the daily run's ledger from MongoDB
+    auth.py              — X-API-Key check applied to every route except /health
 schemas/
-    common.py            — SymbolRequest: symbol validation shared by both requests
+    common.py            — symbol validation shared by every route: SymbolRequest (body), SymbolPath (URL)
     signal.py            — SignalRequest, SignalResponse
     backtest.py          — BacktestRequest, BacktestResponse
+    ledger.py            — LedgerResponse
 services/
     data.py              — fetches market data via yfinance; raises NoPriceDataError (404) or MarketDataUnavailableError (503)
     features.py          — computes daily returns, moving averages, volatility, trend slope, price position, RSI, MACD
     signal.py            — generates BUY/SELL/HOLD signal with confidence score
     decisions.py         — converts a signal + confidence into a position-sizing decision
     backtest.py          — walk-forward, long-only backtest with next-day fills and trading costs
+pipeline/
+    ledger.py            — one day of paper-trading accounting, by the backtest's rules (no I/O)
+    repository.py        — where the ledger is kept: the storage interface and an in-memory implementation
+    mongo_repository.py  — the ledger in MongoDB; connection string from MONGODB_URI
+    daily.py             — the daily run: records each trading day the ledger is missing, once
+    cli.py               — `python -m pipeline SYMBOL ...`: fetches prices and runs the daily run
 tests/
     test_signal.py       — unit tests for signal generation (no live data)
     test_decisions.py    — unit tests for position-sizing decisions
     test_backtest.py     — unit tests for backtest engine (no live data)
     test_features.py     — unit tests for feature calculations
     test_backtest_route.py — HTTP-layer tests via TestClient (no live data)
+    test_ledger_route.py — GET /ledger: entries, symbol validation, 404, 503s, read-only (no database)
     test_validation.py   — request validation for both endpoints (no live data)
     test_data.py         — unit tests for the data fetch and its error translation (no live data)
     test_api_metadata.py — /health and the generated OpenAPI document
     test_auth.py         — API key check as deployed: 401, 503 when unconfigured, public routes
+    test_ledger.py       — day-by-day ledger accounting must match run_backtest (no live data)
+    test_daily_run.py    — daily run: reruns, holidays and catch-up after missed days (no live data)
+    test_repository_contract.py — what any ledger store must do; also run against MongoDB when MONGODB_URI is set
+    test_mongo_repository.py — MongoDB documents, connection string and driver failures (no database)
+    test_cli.py          — the daily run's command line (no live data, no database)
+    ledger_samples.py    — sample prices and ledger entries shared by the ledger tests
     conftest.py          — switches the API key check off for every other test
 scripts/
     backtest_report.py   — regenerates the Backtest Results table and example responses (needs internet)
@@ -47,13 +62,14 @@ requirements.txt         — runtime dependencies, exact pins (what the Docker i
 requirements-dev.txt     — the above plus pytest, httpx and ruff
 pyproject.toml           — ruff (lint + import-order) configuration; no packaging metadata
 Dockerfile               — production image: runtime deps only, explicit copies, non-root user
-.github/workflows/deploy.yml — CI: lint and test every PR into main; on a push to main, also build, push and deploy the image to Azure Container Apps
+.github/workflows/deploy.yml — CI: lint and test every PR into main; on a push to main, also build and push the image and move the container app and the daily-run job to it
 ```
 
 **Data flow:**
 
 - `/signal`: `routes/signal` → `services/data` → `services/features` → `services/signal` → `services/decisions`
 - `/backtest`: `routes/backtest` → `services/data` → `services/backtest` (which calls `services/features`, `services/signal` and `services/decisions` internally)
+- `/ledger/{symbol}`: `routes/ledger` → `pipeline/mongo_repository` (written by `python -m pipeline`, never by the API)
 
 ---
 
@@ -91,7 +107,9 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 128 tests should pass. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 259 tests should pass, and 10 more are reported as skipped. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+
+The 10 skipped tests check the ledger's MongoDB storage against a real database, so they run only when `MONGODB_URI` is set: see [Testing the MongoDB storage](#testing-the-mongodb-storage).
 
 ---
 
@@ -111,15 +129,15 @@ Ruff enforces pycodestyle, pyflakes, import order, bugbear and pyupgrade rules; 
 uvicorn main:app --reload
 ```
 
-The server starts at `http://127.0.0.1:8000`. `/signal` and `/backtest` answer `503` until an API key is configured: see [Authentication](#authentication) for the one-line setup.
+The server starts at `http://127.0.0.1:8000`. `/signal`, `/backtest` and `/ledger` answer `503` until an API key is configured: see [Authentication](#authentication) for the one-line setup. `/ledger` also needs `MONGODB_URI`: see [Reading the ledger](#reading-the-ledger).
 
 ---
 
 ## Authentication
 
-`/signal` and `/backtest` require an API key in the `X-API-Key` header. `/health`, `/docs` and `/openapi.json` are public.
+`/signal`, `/backtest` and `/ledger` require an API key in the `X-API-Key` header. `/health`, `/docs` and `/openapi.json` are public.
 
-The server reads the accepted key from the `API_KEY` environment variable. It **fails closed**: if `API_KEY` is not set, both endpoints answer `503` rather than running open. A missing or wrong key gets `401`.
+The server reads the accepted key from the `API_KEY` environment variable. It **fails closed**: if `API_KEY` is not set, all three endpoints answer `503` rather than running open. A missing or wrong key gets `401`, and the key is checked before anything else, so `/ledger` reveals nothing about its database to a caller without one.
 
 ### Running locally with a key
 
@@ -172,7 +190,15 @@ docker build -t trading-simms .
 docker run --rm -p 8000:8000 -e API_KEY="<your-local-key>" trading-simms
 ```
 
-The image is built on `python:3.13.3-slim`, installs only `requirements.txt` (no test tools), copies only `main.py`, `routes/`, `schemas/` and `services/`, and runs uvicorn as an unprivileged user (`app`, UID 10001). It needs outbound internet access to reach Yahoo Finance.
+The image is built on `python:3.13.3-slim`, installs only `requirements.txt` (no test tools), copies only `main.py`, `routes/`, `schemas/`, `services/` and `pipeline/`, and runs uvicorn as an unprivileged user (`app`, UID 10001). It needs outbound internet access to reach Yahoo Finance.
+
+The same image runs the [daily paper-trading run](#daily-paper-trading-run) when given that command instead of the default:
+
+```bash
+docker run --rm -e MONGODB_URI="<connection-string>" trading-simms python -m pipeline SPY AAPL
+```
+
+`paper-ledger SPY AAPL` is the same command. It exists for the [scheduled job on Azure](#running-it-on-a-schedule-in-azure), whose arguments cannot start with a dash.
 
 ---
 
@@ -184,7 +210,7 @@ Version 1.0.0 (tag `v1.0.0`) runs on Azure Container Apps. The interactive docs 
 
 `/health`, `/docs` and `/openapi.json` answer without a key. `/signal` and `/backtest` require an API key, which is not provided.
 
-Deploys are automatic. Every push to `main` runs the lint and test job and, if it passes, builds the image on the GitHub runner, pushes it to Azure Container Registry tagged with the commit SHA, and points the container app at the new image. Pull requests into `main` run the lint and test job only and never deploy. The workflow is `.github/workflows/deploy.yml`; the app's `API_KEY` is set once on Azure, as described in [Setting the key on Azure Container Apps](#setting-the-key-on-azure-container-apps).
+Deploys are automatic. Every push to `main` runs the lint and test job and, if it passes, builds the image on the GitHub runner, pushes it to Azure Container Registry tagged with the commit SHA, and points the container app and the [daily-run job](#running-it-on-a-schedule-in-azure) at the new image. Pull requests into `main` run the lint and test job only and never deploy. The workflow is `.github/workflows/deploy.yml`; the app's `API_KEY` is set once on Azure, as described in [Setting the key on Azure Container Apps](#setting-the-key-on-azure-container-apps).
 
 **Live timing.** The slowest request the API accepts is a 10-year `/backtest`. Three consecutive runs for AAPL against the deployed app on 2026-11-15 took 3.5 s, 3.0 s and 3.0 s, end to end, including the Yahoo Finance fetch. That is well under the 10-second budget set for it, so the API has no result cache: every request is computed from fresh data. The first request after the app has been idle can take about 20 seconds while the container wakes; requests after that are served at the speeds above.
 
@@ -197,8 +223,9 @@ Deploys are automatic. Every push to `main` runs the lint and test job and, if i
 | GET | `/health` | Health check; returns `{"status": "ok", "version": "..."}` |
 | POST | `/signal` | Generate a trading signal for a symbol |
 | POST | `/backtest` | Run a historical backtest for a symbol |
+| GET | `/ledger/{symbol}` | Read the paper-trading ledger the daily run keeps for a symbol (see [Reading the ledger](#reading-the-ledger)) |
 
-**Input validation and errors.** `symbol` must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
+**Input validation and errors.** `symbol`, in a request body or in the `/ledger` path, must be 1 to 12 characters of letters, digits, `.`, `-`, `^` or `=` (Yahoo Finance ticker syntax). Whitespace is trimmed and the symbol upper-cased, so ` aapl ` becomes `AAPL`. `portfolio_value` must be positive and finite. Invalid input returns `422` naming the failing field.
 
 When Yahoo Finance returns no rows for a symbol the API returns `404` with `No price data found for symbol: X`. This also happens when Yahoo rate-limits requests, so it does not always mean the symbol is unknown. When Yahoo Finance cannot be reached or fails, the API returns `503` with a `Retry-After` header. Each request to Yahoo times out after 10 seconds. A missing or wrong API key returns `401`.
 
@@ -206,7 +233,7 @@ When Yahoo Finance returns no rows for a symbol the API returns `404` with `No p
 
 ## Testing with Swagger UI
 
-Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The docs carry a description of each endpoint, example requests and responses, and the error responses (`401`, `404`, `422`, `503`) with their shape. Click **Authorize** and enter your API key before trying `/signal` or `/backtest` (see [Authentication](#authentication)).
+Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The docs carry a description of each endpoint, example requests and responses, and the error responses (`401`, `404`, `422`, `503`) with their shape. Click **Authorize** and enter your API key before trying `/signal`, `/backtest` or `/ledger` (see [Authentication](#authentication)).
 
 ### Test /signal
 
@@ -362,11 +389,211 @@ Generated by `python scripts/backtest_report.py` on 2026-11-12. Long-only backte
 | MSFT   | -0.72%          | +73.53%             | -0.31  | -1.19%       | 0.56%         | 147    | 127 / 141 / 931        |
 | NVDA   | +0.39%          | +561.21%            | 0.07   | -2.12%       | 0.82%         | 174    | 171 / 146 / 882        |
 
-**What the numbers say.** The strategy is in cash on 83 to 89% of days. The six overrides in [Signal Logic](#signal-logic) downgrade most crossovers, so HOLD fires on 73 to 78% of days and SELL (also cash, since the system is long-only) on most of the rest. BUY fires on only 11 to 17% of days. On those days the position averages 5 to 6% of the portfolio, so average exposure over the whole period is about 1% and the strategy's returns are necessarily small: between -0.72% and +0.39%, against buy-and-hold gains of +73.53% to +561.21%.
+**What the numbers say.** The strategy is in cash on 83 to 89% of days. The seven overrides in [Signal Logic](#signal-logic) (its first bullet covers two) downgrade most crossovers, so HOLD fires on 73 to 78% of days and SELL (also cash, since the system is long-only) on most of the rest. BUY fires on only 11 to 17% of days. On those days the position averages 5 to 6% of the portfolio, so average exposure over the whole period is about 1% and the strategy's returns are necessarily small: between -0.72% and +0.39%, against buy-and-hold gains of +73.53% to +561.21%.
 
 The small exposure is the consequence of a cautious rule set, not the cause of the underperformance. An earlier version of this backtest (same signals, 100% invested on BUY, 100% short on SELL, no costs, same-day fills) also trailed buy-and-hold on all four symbols: SPY +11.7% vs +77.3%, AAPL +22.0% vs +105.8%, MSFT -35.0% vs +79.0%, NVDA -0.3% vs +720.7%. Over this period a filtered 20/50-day crossover has no edge over simply holding these symbols, all of which trended strongly upward.
 
 What the backtest does show is that the pipeline behaves as documented: positions follow confidence, every change in position pays a cost, and the strategy and its benchmark are measured over the same days. Past results do not guarantee future performance.
+
+---
+
+## Daily Paper-Trading Run
+
+`python -m pipeline` keeps a paper account for each symbol, one trading day at a time, by the same rules as the backtest: the signal from one day's close sets the position, the order fills at the next day's open, and every change in position pays the 0.1% trading cost. The backtest replays history in one pass and keeps nothing. The daily run records each day once it is over and keeps the result, the **ledger**, in MongoDB. It places no orders: the account is a calculation.
+
+### Running it
+
+Set `MONGODB_URI` to the connection string of the database that holds the ledger, then name the symbols to update.
+
+**Windows (PowerShell):**
+```powershell
+$env:MONGODB_URI = "<connection-string>"
+python -m pipeline SPY AAPL
+```
+
+**macOS / Linux:**
+```bash
+MONGODB_URI="<connection-string>" python -m pipeline SPY AAPL
+```
+
+Output of a first run on 2026-11-16, which opened both accounts on the latest finished trading day:
+
+```
+SPY 2026-11-13: SELL (ma_crossover_bearish), position 0.00%, return +0.0000%, equity 10,000.00
+AAPL 2026-11-13: BUY (ma_crossover_bullish), position 4.00%, return -0.0229%, equity 9,997.71
+```
+
+Running it again straight away records nothing:
+
+```
+SPY: up to date, last recorded day 2026-11-13
+AAPL: up to date, last recorded day 2026-11-13
+```
+
+The exit status is `0` when every symbol is up to date, `1` when any symbol failed, and `2` when the command line is wrong or `MONGODB_URI` is missing or malformed. A symbol that fails is reported and the others still run.
+
+### What a run does
+
+A run compares the ledger with the daily prices and records the trading days the ledger does not have. It never consults a market calendar, and it is safe to run at any time and any number of times:
+
+- **First run for a symbol.** The account opens in cash with 10,000 on the latest finished trading day. Earlier days are used only as history for the signal.
+- **Run twice.** The second run finds nothing missing and records nothing.
+- **Weekend or holiday.** There is no new price bar, so there is nothing to record.
+- **Missed days.** The next run records every missing day in order, with the same result as if it had run on each of them.
+- **A day still trading.** While a market is open Yahoo Finance already returns a bar for the day, with the latest price in place of the close. A day is recorded only once its date is over in the exchange's own timezone, because a recorded day is never recomputed. So a US trading day is recorded by the first run after midnight in New York: run the command once a day after that, for example at 06:00 UTC from Tuesday to Saturday, as the [Azure job](#running-it-on-a-schedule-in-azure) does.
+- **A gap it cannot fill.** Each run fetches two years of daily prices. If the ledger's last day is older than that, the run stops with an error instead of skipping the days in between.
+
+Two years is far more history than the signal needs. It is fetched because the MACD is an exponential average that never fully forgets its first bar, and the fetch window starts a day later each day. After about 500 bars that first bar's weight is around 2e-17, too small to change a signal, so a day gets the same signal whichever day it is computed on.
+
+### Running it on a schedule in Azure
+
+The daily run is an Azure Container Apps job, `trading-simms-daily-run`, in the same environment as the API and on the same image. It runs `paper-ledger SPY AAPL MSFT NVDA` at 06:00 UTC from Tuesday to Saturday. That is 01:00 in New York in winter and 02:00 in summer, so each weekday's session is over and its date has passed there, and the run records it. A run straight after the 16:00 close would not record that day yet, because a day is recorded only once its date is over in New York. A holiday has no bar, so that morning's run records nothing.
+
+The job reads `MONGODB_URI` from its own secret: a Container Apps job does not see the API's secrets. It writes the ledger, so its database user needs `readWrite` on `trading_simms`, where the API's needs only `read`. Each deploy moves the job to the new image along with the API. Until the job exists, the deploy skips that step with a warning.
+
+Create it once, after a deploy has put an image containing `pipeline/` on the container app. The commands are PowerShell, and they read the environment, image and registry from the container app. The password and connection string stay in shell variables and are never printed. Keeping the connection string to one query option keeps `&` out of it, which `az.cmd` would mangle.
+
+```powershell
+az login
+atlas auth login
+
+$rg = "trading-simms-rg"
+$job = "trading-simms-daily-run"
+$project = "<atlas-project-id>"      # atlas projects list
+$cluster = "<atlas-cluster-name>"    # atlas clusters list --projectId $project
+
+# A database user that can write the ledger, scoped to trading_simms
+$user = "trading-simms-pipeline"
+$password = python -c "import secrets; print(secrets.token_urlsafe(32))"
+atlas dbusers create --username $user --password $password --role readWrite@trading_simms --projectId $project
+
+$srv = (atlas clusters connectionStrings describe $cluster --projectId $project --output json | ConvertFrom-Json).standardSrv
+if (-not $srv) { throw "No standardSrv in the output: check the field name with --output json." }
+$hostName = ($srv -replace '^mongodb\+srv://', '').TrimEnd('/')
+$uri = "mongodb+srv://${user}:${password}@${hostName}/trading_simms?authSource=admin"
+
+# The API's environment, image and registry
+$environment = az containerapp show --name trading-simms --resource-group $rg --query properties.environmentId --output tsv
+$image = az containerapp show --name trading-simms --resource-group $rg --query "properties.template.containers[0].image" --output tsv
+$registry = $image.Split('/')[0]
+$acr = $registry.Split('.')[0]
+$acrUser = az acr credential show --name $acr --query username --output tsv
+$acrPassword = az acr credential show --name $acr --query "passwords[0].value" --output tsv
+
+az containerapp job create --name $job --resource-group $rg --environment $environment `
+  --trigger-type Schedule --cron-expression "0 6 * * 2-6" `
+  --replica-timeout 600 --replica-retry-limit 1 --replica-completion-count 1 --parallelism 1 `
+  --image $image --cpu 0.5 --memory 1.0Gi `
+  --registry-server $registry --registry-username $acrUser --registry-password $acrPassword `
+  --secrets "mongodb-uri=$uri" --env-vars "MONGODB_URI=secretref:mongodb-uri" `
+  --command "paper-ledger" --args "SPY" "AAPL" "MSFT" "NVDA"
+
+Remove-Variable password, uri, acrPassword
+```
+
+Run it once straight away rather than wait for the schedule, then check how it went:
+
+```powershell
+az containerapp job start --name $job --resource-group $rg
+az containerapp job execution list --name $job --resource-group $rg --output table
+```
+
+An execution fails when the command exits non-zero: `1` if any symbol failed, `2` if `MONGODB_URI` is missing or malformed. A failed execution is retried once. That is safe because a run never records a day twice, and a symbol that still fails is caught up by the next morning's run. The job runs in the API's environment and connects from that environment's outbound addresses, so the Atlas access list entries added for the API should cover it. If the first execution fails on the database, check those entries first. To change the symbols, run `az containerapp job update --name $job --resource-group $rg --args "SPY" "QQQ"`. The ledger keeps the days already recorded for symbols that are dropped.
+
+### Where the ledger is kept
+
+`MONGODB_URI` is a standard MongoDB connection string, for example the one MongoDB Atlas gives for a cluster. It contains a password: keep it in the environment or a secret store, never in the repository. The database is the one named in the string's path, or `trading_simms` if it names none, and the collection is `ledger`. The database user needs the `readWrite` role on that database.
+
+There is one document per symbol per trading day. This is the AAPL day from the run above:
+
+```json
+{
+  "symbol": "AAPL",
+  "trade_date": "2026-11-13",
+  "signal_date": "2026-11-12",
+  "signal": "BUY",
+  "confidence": 0.68,
+  "reason": "ma_crossover_bullish",
+  "prev_close": 354.8800048828125,
+  "open_price": 357.9599914550781,
+  "close_price": 356.2699890136719,
+  "day": {
+    "position_before": 0.0,
+    "position_after": 0.04,
+    "traded_pct": 0.04,
+    "traded": true,
+    "cost_pct": 0.00004,
+    "daily_return": -0.00022884819328959245,
+    "equity": 9997.711518067104,
+    "position_value": 399.9084607226842,
+    "cash": 9597.80305734442
+  }
+}
+```
+
+`signal_date` is the day whose close produced the signal. `trade_date` is the next trading day, when the order filled at the open and the account was valued at the close. Positions and costs are fractions of the account, as in the backtest. `equity`, `position_value` and `cash` describe the account at that day's close.
+
+A unique index on `symbol` and `trade_date`, created by the first write, means two runs that overlap cannot both record the same day. Every database operation is given 10 seconds, and a database that cannot be reached is reported as a failure for that symbol.
+
+### Reading the ledger
+
+`GET /ledger/{symbol}` returns every day the daily run has recorded for a symbol, oldest first. It takes the same `X-API-Key` as the other endpoints and only reads: the ledger is written by `python -m pipeline`, never through the API.
+
+```bash
+curl http://127.0.0.1:8000/ledger/AAPL -H "X-API-Key: <your-local-key>"
+```
+
+The fields are the stored document's, with the `day` block lifted into each entry:
+
+```json
+{
+  "symbol": "AAPL",
+  "entries": [
+    {
+      "trade_date": "2026-11-13",
+      "signal_date": "2026-11-12",
+      "signal": "BUY",
+      "confidence": 0.68,
+      "reason": "ma_crossover_bullish",
+      "prev_close": 354.8800048828125,
+      "open_price": 357.9599914550781,
+      "close_price": 356.2699890136719,
+      "position_before": 0.0,
+      "position_after": 0.04,
+      "traded_pct": 0.04,
+      "traded": true,
+      "cost_pct": 0.00004,
+      "daily_return": -0.00022884819328959245,
+      "equity": 9997.711518067104,
+      "position_value": 399.9084607226842,
+      "cash": 9597.80305734442
+    }
+  ]
+}
+```
+
+The server reads the ledger from the database `MONGODB_URI` points to, so set it alongside `API_KEY` before starting uvicorn or the container. The API only reads, so its database user needs only the `read` role. One MongoDB client is built per server process and reused by every request.
+
+| Status | When |
+|--------|------|
+| `404` | The daily run has recorded no days for the symbol. |
+| `503` | `MONGODB_URI` is not set on the server or is not a valid connection string, or the database cannot be reached within 10 seconds. The last two also send `Retry-After`. Neither the connection string nor the driver's error, which names the database hosts, appears in the response. |
+
+### Testing the MongoDB storage
+
+`tests/test_repository_contract.py` holds the tests every ledger store must pass. They always run against the in-memory store. When `MONGODB_URI` is set they also run against that database; otherwise those runs are skipped. Each test uses its own collection with a random name starting `ledger_test_` and drops it afterwards, so the `ledger` collection is never read or written.
+
+```bash
+MONGODB_URI="<connection-string>" python -m pytest tests/test_repository_contract.py -v
+```
+
+Any MongoDB will do. A disposable local one:
+
+```bash
+docker run --rm -d --name ledger-test-db -p 127.0.0.1:27017:27017 mongo:8
+MONGODB_URI="mongodb://127.0.0.1:27017" python -m pytest tests/test_repository_contract.py -v
+docker stop ledger-test-db
+```
 
 ---
 

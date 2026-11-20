@@ -8,9 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Runtime dependencies only: pytest and httpx live in requirements-dev.txt
-# and never reach the image. Copied first so this layer is cached until the
-# pins change.
+# Runtime dependencies only: pytest, httpx and ruff live in
+# requirements-dev.txt and never reach the image. Copied first so this layer
+# is cached until the pins change.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -26,6 +26,17 @@ COPY --chown=app:app main.py ./
 COPY --chown=app:app routes ./routes
 COPY --chown=app:app schemas ./schemas
 COPY --chown=app:app services ./services
+# The daily paper-trading run. The image's default command serves the API;
+# `python -m pipeline SYMBOL ...` runs this instead.
+COPY --chown=app:app pipeline ./pipeline
+
+# The same run as `paper-ledger SYMBOL ...`, the command the scheduled
+# Container Apps job uses. The Azure CLI reads any value that starts with
+# "-" as one of its own options, so it cannot pass `-m pipeline` as the
+# job's arguments; this command needs no dashes. Written here rather than
+# copied so a Windows checkout's line endings cannot break the #! line.
+RUN printf '#!/bin/sh\nexec python -m pipeline "$@"\n' > /usr/local/bin/paper-ledger \
+    && chmod 755 /usr/local/bin/paper-ledger
 
 USER app
 

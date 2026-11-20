@@ -1,9 +1,15 @@
+from datetime import date
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from ledger_samples import sample_entry
 from main import app
+from pipeline.mongo_repository import MONGODB_URI_ENV_VAR
+from pipeline.repository import InMemoryLedgerRepository
 from routes import backtest as backtest_route
+from routes import ledger as ledger_route
 from routes import signal as signal_route
 from routes.auth import API_KEY_ENV_VAR
 
@@ -108,6 +114,33 @@ def test_backtest_is_protected_too(monkeypatch):
     assert fetched == ["AAPL"]
 
 
+def test_ledger_is_protected_too(monkeypatch):
+    monkeypatch.setenv(API_KEY_ENV_VAR, TEST_KEY)
+    repository = InMemoryLedgerRepository()
+    repository.append(sample_entry("AAPL", date(2026, 11, 13)))
+    app.dependency_overrides[ledger_route.get_ledger_repository] = lambda: repository
+
+    try:
+        denied = client.get("/ledger/AAPL")
+        allowed = client.get("/ledger/AAPL", headers={"X-API-Key": TEST_KEY})
+    finally:
+        app.dependency_overrides.pop(ledger_route.get_ledger_repository, None)
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+    assert len(allowed.json()["entries"]) == 1
+
+
+def test_ledger_checks_the_key_before_the_database(monkeypatch):
+    # A caller without a key learns nothing about how the ledger is set up.
+    monkeypatch.setenv(API_KEY_ENV_VAR, TEST_KEY)
+    monkeypatch.delenv(MONGODB_URI_ENV_VAR, raising=False)
+
+    response = client.get("/ledger/AAPL")
+
+    assert response.status_code == 401
+
+
 @pytest.mark.parametrize("path", ["/health", "/docs", "/openapi.json"])
 def test_health_and_docs_stay_public(monkeypatch, path):
     # Even on a server with no key configured.
@@ -127,4 +160,5 @@ def test_openapi_declares_the_api_key_scheme():
     ).items()
     assert schema["paths"]["/signal"]["post"]["security"]
     assert schema["paths"]["/backtest"]["post"]["security"]
+    assert schema["paths"]["/ledger/{symbol}"]["get"]["security"]
     assert "security" not in schema["paths"]["/health"]["get"]
