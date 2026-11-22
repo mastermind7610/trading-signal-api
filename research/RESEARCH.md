@@ -270,3 +270,115 @@ Sharpe than buy-and-hold on most symbols.
 The holdout script runs only `bare` and buy-and-hold. It refuses to run
 if anything under `research/` is uncommitted, so this choice is committed
 first, and it refuses to run a second time.
+
+## Holdout result (2021-11-17 to 2026-11-16, run once)
+
+`research/run_holdout.py` ran once, at commit 70ea194, after the choice
+above was committed. It scored 1,254 return days per symbol. The account
+started flat at the close of 2021-11-16, and the indicators were warmed
+up on earlier prices. The output is in `research/results/holdout.json`
+and `holdout_per_symbol.csv`.
+
+| Symbol | B&H return | B&H Sharpe | B&H max DD | `bare` return | `bare` Sharpe | `bare` max DD | `bare` exposure | `bare` trades | ΔSharpe |
+|---|---|---|---|---|---|---|---|---|---|
+| SPY | +69.09% | 0.694 | -24.57% | +1.27% | 0.313 | -2.16% | 4.65% | 482 | -0.381 |
+| AAPL | +143.99% | 0.777 | -33.17% | +3.64% | 0.496 | -2.18% | 4.19% | 391 | -0.281 |
+| MSFT | +60.45% | 0.475 | -36.93% | +1.57% | 0.260 | -2.51% | 3.59% | 458 | -0.216 |
+| NVDA | +438.14% | 0.909 | -66.12% | +11.94% | 0.810 | -4.43% | 4.15% | 425 | -0.099 |
+| JPM | +132.73% | 0.816 | -38.06% | +1.82% | 0.302 | -1.79% | 4.12% | 451 | -0.514 |
+| JNJ | +99.49% | 0.857 | -18.45% | +2.78% | 0.566 | -1.37% | 3.86% | 454 | -0.292 |
+| XOM | +209.13% | 0.984 | -20.54% | +0.14% | 0.025 | -3.95% | 3.72% | 534 | -0.959 |
+| PG | +34.14% | 0.411 | -23.76% | -1.53% | -0.366 | -3.49% | 3.05% | 461 | -0.777 |
+| HD | +1.19% | 0.135 | -34.56% | -0.05% | -0.005 | -2.98% | 3.32% | 412 | -0.139 |
+| CAT | +202.92% | 0.845 | -47.27% | +9.02% | 0.936 | -1.98% | 4.33% | 397 | +0.091 |
+| **Median** | +116.11% | 0.797 | -33.87% | +1.69% | 0.308 | -2.34% | 3.99% | 452 | -0.286 |
+
+`bare` has a higher Sharpe than buy-and-hold on 1 of the 10 symbols
+(CAT), and the median difference is -0.286. The pre-registered test needs
+at least 8 of 10 and a positive median. **Result: no edge.**
+
+## How much was tried
+
+The holdout number is not the best of many tries. Here is the full
+count:
+
+- **Tuning window:** 16 strategy variants plus buy-and-hold, on 10
+  symbols, is 170 backtests. The 16 variants are 8 distinct trading
+  rules, because the four SELL overrides never change a position.
+- **Holdout:** 1 variant plus buy-and-hold, on 10 symbols, is 20
+  backtests, run once.
+- **Not tuned:** no thresholds, moving-average lengths or sizing
+  constants were changed. Only the overrides were switched on and off,
+  which kept the number of trials small.
+
+`bare` was the best of 8 distinct rules on the tuning window, so its
+tuning score (-0.249) carries the usual best-of-many optimism. The
+holdout score (-0.286) is the unbiased estimate for that one choice. It is
+slightly worse, as expected, and points the same way.
+
+## Conclusion
+
+**The strategy has no edge over buy-and-hold on this data, in either
+window, with or without its vetoes.**
+
+- **Edge over buy-and-hold: none.**
+  - On the tuning years (2012 to 2021), no variant has a higher Sharpe
+    than buy-and-hold on more than 1 of 10 symbols. The best one, the
+    bare crossover, has a median Sharpe 0.25 lower.
+  - On the five holdout years (2021 to 2026), run once, the same rule is
+    0.29 lower and beats buy-and-hold only on CAT.
+  - The crossover earns a positive Sharpe on most symbols, about 0.3 to
+    0.6 at the median, because it is long a rising market part of the
+    time. Holding the stock throughout did better on risk-adjusted terms
+    as well as raw ones.
+- **The four SELL overrides do nothing.** In a long-only strategy SELL
+  and HOLD both mean cash, so turning one into the other never changes a
+  position. Removing them would change no position, return or risk
+  figure. It would change only how `/signal` labels those days: SELL
+  instead of HOLD, with that signal's reason code and confidence.
+- **The two BUY vetoes that matter make it worse.**
+  - The MACD veto blocks about half of BUY days and the overbought veto
+    about a quarter.
+  - On the tuning window, removing either one raised the median Sharpe
+    (by 0.17 and 0.11), and adding either one to the bare crossover
+    lowered it (by 0.20 and 0.09).
+  - The falling-trend veto almost never fires (0.5% of BUY days) and
+    makes no measurable difference.
+  - The strategy as deployed has a median tuning Sharpe of 0.23, against
+    0.57 for the bare crossover.
+  - These veto comparisons are in-sample only. The holdout tested one
+    rule, by design, so it confirms nothing about the vetoes.
+- **What it would take to claim an edge.** Neither removing vetoes nor
+  keeping them gets close. The best rule tried is already 0.25 to 0.29 of
+  Sharpe behind buy-and-hold, and the pre-registered test was lenient.
+
+For the project, this supports the README's existing statement that the
+filtered crossover has no edge over holding these symbols. It also adds
+that the filters reduce risk-adjusted return rather than improve it.
+`services/` was not changed: what to do with the vetoes on `/signal` is
+a product decision, not something this study settles.
+
+## Limitations
+
+- **Survivorship.** The ten symbols were chosen in 2026 and are all
+  still large. That flatters buy-and-hold more than the strategy, which
+  is mostly in cash, so it is a reason for caution about the size of the
+  gap, not its direction.
+- **Correlated symbols.** All ten are US large caps, and SPY holds the
+  other nine. The ten results are not ten independent tests.
+- **Cash earns nothing.** The engine follows `run_backtest`, where cash
+  earns 0. For much of 2023 to 2025, T-bills paid 4 to 5%. A strategy 96% in cash
+  would have earned that in practice, but so would any cash alternative.
+  The Sharpe comparison uses a zero risk-free rate for both sides.
+- **The holdout years were not unseen by the project.** The README's
+  5-year backtests (late 2021 to 2026) and the confidence constant
+  (`FULL_CONFIDENCE_STRENGTH = 3`, chosen on 5 years of SPY, AAPL, MSFT
+  and NVDA) both used data that overlaps the holdout. The holdout is
+  untouched by this study's selection but not by the strategy's design.
+  That bias favours the strategy, and the result is still no edge.
+- **One split and one cost level.** There is a single 10/5-year split
+  and a 0.1% cost. With positions of at most 10%, costs are a small part
+  of the result.
+- **Untested variants.** Only the sizing `/signal` uses (0 to 10% by
+  confidence) was tested. Unit-sized or other variants were not
+  pre-registered and were not run.
