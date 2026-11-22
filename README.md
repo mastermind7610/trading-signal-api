@@ -449,28 +449,36 @@ Two years is far more history than the signal needs. It is fetched because the M
 
 The daily run is an Azure Container Apps job, `trading-simms-daily-run`, in the same environment as the API and on the same image. It runs `paper-ledger SPY AAPL MSFT NVDA` at 06:00 UTC from Tuesday to Saturday. That is 01:00 in New York in winter and 02:00 in summer, so each weekday's session is over and its date has passed there, and the run records it. A run straight after the 16:00 close would not record that day yet, because a day is recorded only once its date is over in New York. A holiday has no bar, so that morning's run records nothing.
 
-The job reads `MONGODB_URI` from its own secret: a Container Apps job does not see the API's secrets. It writes the ledger, so its database user needs `readWrite` on `trading_simms`, where the API's needs only `read`. Each deploy moves the job to the new image along with the API. Until the job exists, the deploy skips that step with a warning.
+The job reads `MONGODB_URI` from its own secret, `mongodb-uri`: a Container Apps job does not see the API's secrets. It writes the ledger, so it connects as its own database user, `trading-simms-pipeline`, with `readWrite` on `trading_simms`, where the API's user needs only `read`. Each deploy moves the job to the new image along with the API. Until the job exists, the deploy skips that step with a warning.
 
-Create it once, after a deploy has put an image containing `pipeline/` on the container app. The commands are PowerShell, and they read the environment, image and registry from the container app. The password and connection string stay in shell variables and are never printed. Keeping the connection string to one query option keeps `&` out of it, which `az.cmd` would mangle.
+The job is created once, after a deploy has put an image containing `pipeline/` on the container app. No Atlas CLI is needed: the database user and network access are set in the Atlas web UI, and the connection string is written by hand.
+
+**1. The database user.** In Atlas, under Database Access, add a password user `trading-simms-pipeline` whose only privilege is `readWrite` on the `trading_simms` database. Do not give it a project-wide role such as "Read and write to any database".
+
+**2. The connection string.** Build it by hand from that user:
+
+```
+mongodb+srv://trading-simms-pipeline:<password>@<cluster-host>/trading_simms?authSource=admin
+```
+
+- `<cluster-host>` is the cluster's address, the part after `@` in the string Atlas shows under Connect → Drivers, for example `cluster0.abcde.mongodb.net`.
+- In `<password>`, percent-encode any of `: / ? # [ ] @ %`. A password of letters and digits needs no encoding.
+- `/trading_simms` selects the database. `authSource=admin` is there because Atlas keeps its database users in `admin`.
+- Leave off the `retryWrites=true&w=majority&appName=...` options Atlas adds to its own string. The driver already retries writes by default, and with one query option the string has no `&`, which `az.cmd` mangles when PowerShell passes it on.
+
+**3. Network access.** Atlas refuses connections from addresses not on its Network Access list, so the list must allow the Container Apps environment's outbound IPs. On the Consumption plan those addresses are not fixed, so for now the list allows `0.0.0.0/0` (any address). The database users' passwords are then the only thing keeping other clients out. Narrowing the list needs a fixed outbound address, for example a workload-profiles environment behind a NAT gateway; that one IP would then replace `0.0.0.0/0`.
+
+**4. The job.** These PowerShell commands read the environment, image and registry from the container app. The connection string from step 2 is typed at a hidden prompt, so it never appears on screen or in the shell history.
 
 ```powershell
 az login
-atlas auth login
 
 $rg = "trading-simms-rg"
 $job = "trading-simms-daily-run"
-$project = "<atlas-project-id>"      # atlas projects list
-$cluster = "<atlas-cluster-name>"    # atlas clusters list --projectId $project
 
-# A database user that can write the ledger, scoped to trading_simms
-$user = "trading-simms-pipeline"
-$password = python -c "import secrets; print(secrets.token_urlsafe(32))"
-atlas dbusers create --username $user --password $password --role readWrite@trading_simms --projectId $project
-
-$srv = (atlas clusters connectionStrings describe $cluster --projectId $project --output json | ConvertFrom-Json).standardSrv
-if (-not $srv) { throw "No standardSrv in the output: check the field name with --output json." }
-$hostName = ($srv -replace '^mongodb\+srv://', '').TrimEnd('/')
-$uri = "mongodb+srv://${user}:${password}@${hostName}/trading_simms?authSource=admin"
+# The connection string from step 2
+$secure = Read-Host "MONGODB_URI for trading-simms-pipeline" -AsSecureString
+$uri = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
 
 # The API's environment, image and registry
 $environment = az containerapp show --name trading-simms --resource-group $rg --query properties.environmentId --output tsv
@@ -488,7 +496,7 @@ az containerapp job create --name $job --resource-group $rg --environment $envir
   --secrets "mongodb-uri=$uri" --env-vars "MONGODB_URI=secretref:mongodb-uri" `
   --command "paper-ledger" --args "SPY" "AAPL" "MSFT" "NVDA"
 
-Remove-Variable password, uri, acrPassword
+Remove-Variable secure, uri, acrPassword
 ```
 
 Run it once straight away rather than wait for the schedule, then check how it went:
@@ -498,7 +506,7 @@ az containerapp job start --name $job --resource-group $rg
 az containerapp job execution list --name $job --resource-group $rg --output table
 ```
 
-An execution fails when the command exits non-zero: `1` if any symbol failed, `2` if `MONGODB_URI` is missing or malformed. A failed execution is retried once. That is safe because a run never records a day twice, and a symbol that still fails is caught up by the next morning's run. The job runs in the API's environment and connects from that environment's outbound addresses, so the Atlas access list entries added for the API should cover it. If the first execution fails on the database, check those entries first. To change the symbols, run `az containerapp job update --name $job --resource-group $rg --args "SPY" "QQQ"`. The ledger keeps the days already recorded for symbols that are dropped.
+An execution fails when the command exits non-zero: `1` if any symbol failed, `2` if `MONGODB_URI` is missing or malformed. A failed execution is retried once. That is safe because a run never records a day twice, and a symbol that still fails is caught up by the next morning's run. If an execution fails on the database, check the Network Access list (step 3) first. To change the symbols, run `az containerapp job update --name $job --resource-group $rg --args "SPY" "QQQ"`. The ledger keeps the days already recorded for symbols that are dropped.
 
 ### Where the ledger is kept
 
