@@ -133,3 +133,140 @@ than buy-and-hold on at least 8 of the 10 symbols and the median
 difference is positive. Eight of ten would be a one-sided sign-test p of
 0.055 if the symbols were independent. They are not (all are US large
 caps, and SPY holds the other nine), so this bar is lenient.
+
+---
+
+Everything below was added after the pre-registration, in the order it
+happened. Nothing above this line was changed.
+
+## How the run went (2026-11-21)
+
+- **Rebase.** Before the tuning run, the branch was rebased onto `main`
+  (9555baa), which had gained the paper-trading ledger and its docs. The
+  three earlier research commits kept their content and order.
+  `services/` is identical in the old and new bases, and the engine check
+  was rerun on the new base.
+- **Engine check.** `research/verify_engine.py` passed on all ten symbols.
+  On each of the 2,461 tuning signal days, the full strategy's signal and
+  position equal production's. Its return, Sharpe, drawdown, exposure,
+  trades, costs and signal counts equal `run_backtest`'s. Return days run
+  from 2012-02-08 to 2021-11-16.
+- **Data.** Every load was checked against the manifest's SHA-256.
+- **Deviations from the pre-registration.** None.
+
+## Tuning results (2012-02-08 to 2021-11-16)
+
+Produced by `research/run_tuning.py`. The full output is in
+`research/results/` (`tuning_per_symbol.csv`, `tuning_summary.csv`,
+`tuning_overrides.csv`, `selection.json`).
+
+### Every variant (medians over the ten symbols)
+
+Score is the median of (variant Sharpe minus buy-and-hold Sharpe). Beats
+B&H counts the symbols on which the variant's Sharpe is higher.
+
+| Variant | Overrides | Return | Sharpe | Max drawdown | Exposure | Trades | Score | Beats B&H | Same positions as |
+|---|---|---|---|---|---|---|---|---|---|
+| `buy_and_hold` | 0 | +391.12% | 0.894 | -41.67% | 100.00% | 1 | +0.0000 | 0/10 |  |
+| `bare` | 0 | +6.45% | 0.573 | -2.43% | 4.67% | 965 | -0.2492 | 0/10 | `bare` plus any SELL override |
+| `full` | 7 | +0.82% | 0.228 | -1.71% | 0.86% | 410 | -0.7249 | 1/10 | `full` minus any SELL override |
+| `full_minus_sell_trend_rising` | 6 | +0.82% | 0.228 | -1.71% | 0.86% | 410 | -0.7249 | 1/10 | `full` |
+| `full_minus_buy_trend_falling` | 6 | +0.80% | 0.208 | -1.66% | 0.87% | 414 | -0.7277 | 1/10 |  |
+| `full_minus_sell_price_above_ma50` | 6 | +0.82% | 0.228 | -1.71% | 0.86% | 410 | -0.7249 | 1/10 | `full` |
+| `full_minus_buy_overbought` | 6 | +1.05% | 0.179 | -1.82% | 2.01% | 590 | -0.6682 | 0/10 |  |
+| `full_minus_sell_oversold` | 6 | +0.82% | 0.228 | -1.71% | 0.86% | 410 | -0.7249 | 1/10 | `full` |
+| `full_minus_buy_macd_bearish` | 6 | +3.36% | 0.375 | -2.26% | 3.32% | 882 | -0.4038 | 1/10 |  |
+| `full_minus_sell_macd_bullish` | 6 | +0.82% | 0.228 | -1.71% | 0.86% | 410 | -0.7249 | 1/10 | `full` |
+| `bare_plus_sell_trend_rising` | 1 | +6.45% | 0.573 | -2.43% | 4.67% | 965 | -0.2492 | 0/10 | `bare` |
+| `bare_plus_buy_trend_falling` | 1 | +6.37% | 0.564 | -2.43% | 4.66% | 962 | -0.2580 | 0/10 |  |
+| `bare_plus_sell_price_above_ma50` | 1 | +6.45% | 0.573 | -2.43% | 4.67% | 965 | -0.2492 | 0/10 | `bare` |
+| `bare_plus_buy_overbought` | 1 | +3.43% | 0.378 | -2.26% | 3.32% | 884 | -0.3971 | 1/10 |  |
+| `bare_plus_sell_oversold` | 1 | +6.45% | 0.573 | -2.43% | 4.67% | 965 | -0.2492 | 0/10 | `bare` |
+| `bare_plus_buy_macd_bearish` | 1 | +0.97% | 0.168 | -1.82% | 2.02% | 598 | -0.6651 | 0/10 |  |
+| `bare_plus_sell_macd_bullish` | 1 | +6.45% | 0.573 | -2.43% | 4.67% | 965 | -0.2492 | 0/10 | `bare` |
+
+### Sharpe ratio per symbol (one column per distinct trading rule)
+
+| Symbol | B&H | bare | full | full − trend_falling | full − overbought | full − macd_bearish | bare + trend_falling | bare + overbought | bare + macd_bearish |
+|---|---|---|---|---|---|---|---|---|---|
+| SPY | 0.987 | 0.720 | -0.433 | -0.396 | -0.173 | 0.577 | 0.709 | 0.590 | -0.152 |
+| AAPL | 0.994 | 0.822 | 0.258 | 0.287 | 0.806 | 0.278 | 0.813 | 0.288 | 0.821 |
+| MSFT | 1.177 | 0.779 | 0.000 | 0.000 | 0.027 | 0.749 | 0.779 | 0.749 | 0.027 |
+| NVDA | 1.324 | 0.925 | 0.651 | 0.652 | 0.456 | 0.927 | 0.925 | 0.928 | 0.456 |
+| JPM | 0.800 | 0.576 | 0.603 | 0.590 | 0.371 | 0.627 | 0.562 | 0.642 | 0.363 |
+| JNJ | 0.796 | 0.186 | 0.231 | 0.231 | 0.235 | 0.066 | 0.186 | 0.066 | 0.235 |
+| XOM | 0.175 | 0.167 | 0.263 | 0.185 | 0.093 | 0.257 | 0.144 | 0.280 | 0.043 |
+| PG | 0.751 | 0.520 | -0.430 | -0.430 | -0.239 | 0.456 | 0.520 | 0.456 | -0.239 |
+| HD | 1.188 | 0.570 | 0.224 | 0.237 | 0.412 | 0.294 | 0.566 | 0.300 | 0.418 |
+| CAT | 0.460 | 0.286 | -0.255 | -0.289 | 0.122 | 0.074 | 0.259 | 0.106 | 0.101 |
+
+### What each override does
+
+Blocks is the share of that side's crossover days on which the
+override's condition holds, pooled over symbols. The Sharpe changes are
+medians over the ten symbols; up / down counts the symbols where the
+Sharpe rose or fell.
+
+| Override | Side | Blocks | Removing it from full: median ΔSharpe | up / down | Adding it to bare: median ΔSharpe | up / down |
+|---|---|---|---|---|---|---|
+| `sell_trend_rising` | SELL | 0.9% | +0.0000 | 0 / 0 | +0.0000 | 0 / 0 |
+| `buy_trend_falling` | BUY | 0.5% | +0.0000 | 4 / 3 | -0.0061 | 0 / 7 |
+| `sell_price_above_ma50` | SELL | 2.0% | +0.0000 | 0 / 0 | +0.0000 | 0 / 0 |
+| `buy_overbought` | BUY | 25.2% | +0.1070 | 7 / 3 | -0.0920 | 3 / 7 |
+| `sell_oversold` | SELL | 13.1% | +0.0000 | 0 / 0 | +0.0000 | 0 / 0 |
+| `buy_macd_bearish` | BUY | 53.6% | +0.1731 | 8 / 2 | -0.1993 | 1 / 9 |
+| `sell_macd_bullish` | SELL | 60.6% | +0.0000 | 0 / 0 | +0.0000 | 0 / 0 |
+
+### What the tuning window says
+
+1. **The four SELL overrides do nothing.** As predicted from the code,
+   removing any of them from the full strategy, or adding any of them to
+   the bare crossover, leaves every position on every day unchanged. They
+   turn SELL into HOLD, and in a long-only strategy both mean cash. So the
+   16 variants are 8 distinct trading rules.
+2. **No variant beats buy-and-hold.** Buy-and-hold's median Sharpe is
+   0.894. The best variant, the bare crossover, has 0.573 and beats
+   buy-and-hold on none of the ten symbols. No variant beats it on more
+   than one symbol, and that symbol is always XOM, whose buy-and-hold
+   Sharpe over these years was only 0.175.
+3. **The two BUY vetoes that fire often both hurt.**
+   - The MACD veto blocks 54% of BUY days. Removing it from the full
+     strategy raises the median Sharpe by 0.17 (up on 8 of 10 symbols);
+     adding it alone to the bare crossover lowers it by 0.20 (down on 9).
+   - The overbought veto blocks 25%. Removing it raises the median Sharpe
+     by 0.11 (up on 7); adding it lowers it by 0.09 (down on 7).
+   - The falling-trend veto blocks 0.5% of BUY days and changes little.
+   - With every override on, the strategy as deployed has a median Sharpe
+     of 0.228, near the bottom of the table: the vetoes remove most of
+     the bare crossover's (already insufficient) risk-adjusted return.
+4. **Return and drawdown mostly measure exposure.** The bare crossover
+   holds 4.7% of the account on a median day and the full strategy 0.9%,
+   against buy-and-hold's 100%. That is why their returns (+6.45%,
+   +0.82%) and drawdowns (-2.43%, -1.71%) are so far from buy-and-hold's
+   (+391%, -41.7%). Sharpe is the comparison that does not depend on
+   exposure.
+
+## The choice (written and committed before the holdout was touched)
+
+**Chosen variant: `bare`, the 20/50-day crossover with no overrides,**
+sized by confidence exactly as `/signal` sizes a BUY.
+
+Why: the pre-registered rule ranks variants by the median of (variant
+Sharpe minus buy-and-hold Sharpe), and `bare` has the highest score,
+-0.2492. Four other variants share that score, but they are `bare` plus a
+SELL override, which hold identical positions, and they lose the tie on
+number of overrides.
+
+The score is negative and `bare` beats buy-and-hold on 0 of 10 symbols,
+so by the pre-registered wording this is **no in-sample edge**. It still
+goes to the holdout, as pre-registered, because the holdout is meant to
+report the strategy's best showing out of sample. A negative score here
+already answers the first question for the tuning window, so the holdout
+cannot rescue an edge. It can only show whether this ranking holds up.
+
+Before the holdout run, the expectation is that `bare` again has a lower
+Sharpe than buy-and-hold on most symbols.
+
+The holdout script runs only `bare` and buy-and-hold. It refuses to run
+if anything under `research/` is uncommitted, so this choice is committed
+first, and it refuses to run a second time.

@@ -1,0 +1,8 @@
+override,side,blocks_share_of_side_days,removing_median_sharpe_change,removing_raises_sharpe_on,removing_lowers_sharpe_on,adding_median_sharpe_change,adding_raises_sharpe_on,adding_lowers_sharpe_on
+sell_trend_rising,SELL,0.009375771033802122,0.0,0,0,0.0,0,0
+buy_trend_falling,BUY,0.0047867183713039265,0.0,4,3,-0.0061,0,7
+sell_price_above_ma50,SELL,0.020478657784357267,0.0,0,0,0.0,0,0
+buy_overbought,BUY,0.2523630634997576,0.107,7,3,-0.092,3,7
+sell_oversold,SELL,0.1306439674315322,0.0,0,0,0.0,0,0
+buy_macd_bearish,BUY,0.5362942317014057,0.1731,8,2,-0.1993,1,9
+sell_macd_bullish,SELL,0.6056007895386134,0.0,0,0,0.0,0,0
