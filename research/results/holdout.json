@@ -1,0 +1,25 @@
+{
+  "variant": "bare",
+  "ran_at": "2026-11-22T02:03:16+00:00",
+  "code_commit": "70ea1948b13d55bfa43e1a76d495ebb816c08865",
+  "first_return_day": "2021-11-17",
+  "last_return_day": "2026-11-16",
+  "days": [
+    1254
+  ],
+  "trading_cost_pct": 0.001,
+  "beats_buy_and_hold_on": 1,
+  "median_sharpe_difference": -0.2862,
+  "edge_rule": "edge only if Sharpe beats buy-and-hold on >= 8 of 10 symbols and the median difference is positive",
+  "edge": false,
+  "median_chosen_total_return": 0.016916690171357995,
+  "median_chosen_sharpe": 0.3076,
+  "median_chosen_max_drawdown": -0.02345,
+  "median_chosen_exposure": 0.03988991228070175,
+  "median_chosen_trades": 452.5,
+  "median_buy_and_hold_total_return": 1.1611100204582412,
+  "median_buy_and_hold_sharpe": 0.79655,
+  "median_buy_and_hold_max_drawdown": -0.33865,
+  "median_buy_and_hold_exposure": 1.0,
+  "median_buy_and_hold_trades": 1.0
+}
