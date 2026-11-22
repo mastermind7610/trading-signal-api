@@ -1,0 +1,18 @@
+variant,overrides,median_total_return,median_sharpe,median_max_drawdown,median_exposure,median_trades,score,beats_buy_and_hold,same_positions_as
+buy_and_hold,0,3.9112333223929507,0.8935500000000001,-0.4167,1.0,1.0,0.0,0,
+bare,0,0.06451040143045028,0.5727,-0.0243,0.0467049573344169,965.0,-0.2492,0,bare_plus_sell_trend_rising bare_plus_sell_price_above_ma50 bare_plus_sell_oversold bare_plus_sell_macd_bullish
+full,7,0.008231716530664013,0.22754999999999997,-0.017099999999999997,0.008637423811458756,409.5,-0.7249,1,full_minus_sell_trend_rising full_minus_sell_price_above_ma50 full_minus_sell_oversold full_minus_sell_macd_bullish
+full_minus_sell_trend_rising,6,0.008231716530664013,0.22754999999999997,-0.017099999999999997,0.008637423811458756,409.5,-0.7249,1,full full_minus_sell_price_above_ma50 full_minus_sell_oversold full_minus_sell_macd_bullish
+full_minus_buy_trend_falling,6,0.007973081242703461,0.20779999999999998,-0.0166,0.008654571312474605,414.0,-0.7277,1,
+full_minus_sell_price_above_ma50,6,0.008231716530664013,0.22754999999999997,-0.017099999999999997,0.008637423811458756,409.5,-0.7249,1,full full_minus_sell_trend_rising full_minus_sell_oversold full_minus_sell_macd_bullish
+full_minus_buy_overbought,6,0.010500276715335488,0.1789,-0.0182,0.020130434782608696,590.5,-0.6682,0,
+full_minus_sell_oversold,6,0.008231716530664013,0.22754999999999997,-0.017099999999999997,0.008637423811458756,409.5,-0.7249,1,full full_minus_sell_trend_rising full_minus_sell_price_above_ma50 full_minus_sell_macd_bullish
+full_minus_buy_macd_bearish,6,0.03357805686526005,0.37515,-0.022600000000000002,0.03323718000812678,882.5,-0.4038,1,
+full_minus_sell_macd_bullish,6,0.008231716530664013,0.22754999999999997,-0.017099999999999997,0.008637423811458756,409.5,-0.7249,1,full full_minus_sell_trend_rising full_minus_sell_price_above_ma50 full_minus_sell_oversold
+bare_plus_sell_trend_rising,1,0.06451040143045028,0.5727,-0.0243,0.0467049573344169,965.0,-0.2492,0,bare bare_plus_sell_price_above_ma50 bare_plus_sell_oversold bare_plus_sell_macd_bullish
+bare_plus_buy_trend_falling,1,0.06370012704230565,0.5643,-0.0243,0.04663502641202763,962.0,-0.258,0,
+bare_plus_sell_price_above_ma50,1,0.06451040143045028,0.5727,-0.0243,0.0467049573344169,965.0,-0.2492,0,bare bare_plus_sell_trend_rising bare_plus_sell_oversold bare_plus_sell_macd_bullish
+bare_plus_buy_overbought,1,0.03428645480952741,0.37775000000000003,-0.022600000000000002,0.03324800893945551,884.0,-0.3971,1,
+bare_plus_sell_oversold,1,0.06451040143045028,0.5727,-0.0243,0.0467049573344169,965.0,-0.2492,0,bare bare_plus_sell_trend_rising bare_plus_sell_price_above_ma50 bare_plus_sell_macd_bullish
+bare_plus_buy_macd_bearish,1,0.009700899146007469,0.16799999999999998,-0.0182,0.02017738724095896,598.5,-0.6651,0,
+bare_plus_sell_macd_bullish,1,0.06451040143045028,0.5727,-0.0243,0.0467049573344169,965.0,-0.2492,0,bare bare_plus_sell_trend_rising bare_plus_sell_price_above_ma50 bare_plus_sell_oversold

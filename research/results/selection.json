@@ -1,0 +1,123 @@
+{
+  "chosen": "bare",
+  "overrides": [],
+  "score": -0.2492,
+  "beats_buy_and_hold": 0,
+  "same_positions_as": [
+    "bare_plus_sell_trend_rising",
+    "bare_plus_sell_price_above_ma50",
+    "bare_plus_sell_oversold",
+    "bare_plus_sell_macd_bullish"
+  ],
+  "in_sample_edge": false,
+  "rule": "Highest median over the ten symbols of (variant Sharpe minus buy-and-hold Sharpe) on the tuning window; ties to four decimals go to fewer overrides, then to table order. Exactly one variant goes to the holdout.",
+  "made_at": "2026-11-22T02:00:41+00:00",
+  "tuning_last_day": "2021-11-16",
+  "trading_cost_pct": 0.001,
+  "strategy_variants_tried": 16,
+  "distinct_strategy_rules": 8,
+  "distinct_rule_representatives": [
+    "bare",
+    "full",
+    "full_minus_buy_trend_falling",
+    "full_minus_buy_overbought",
+    "full_minus_buy_macd_bearish",
+    "bare_plus_buy_trend_falling",
+    "bare_plus_buy_overbought",
+    "bare_plus_buy_macd_bearish"
+  ],
+  "data_sha256": {
+    "SPY": "7d34568aefa14aa56c1bf5bed3a7702e114914b9158e199bc8e307e9bf92a0ae",
+    "AAPL": "762a5ccab752d5f2a37c996efefe374c8ede2d6851b4c6509154b1e8acc4043d",
+    "MSFT": "2e2110f59fc0535ed1873c34932625bb86f6d4f96215a34b82264ce7a561826f",
+    "NVDA": "d2f7f2f6a1fb9f8dd1a8b80998e9647497140a2c71c7c80a1269f38a8d34b2a1",
+    "JPM": "810533dd653a9a48da474466f137d0fd88974194afc1ef17c6da0e39cefefb59",
+    "JNJ": "8bcae07b0b4099b43900b63b1fb260766c14e27aebaa6dda79a30611242926b9",
+    "XOM": "c23a06e60f70485bdd8712e2128cfea862af05ea76a3383898a2890bee6003b7",
+    "PG": "9f9ae88f99968190b633f847e254c3a30ff31cbf94c242cb11ca2903134a0a15",
+    "HD": "3662c5035bca7c3c7ca31607119f7ef4b56ee1fb290e31c7f93d6f1d958f18e3",
+    "CAT": "c8a124c77e97699de41b4063b1712841fbd0c039ab178aedfcd119ef693466df"
+  },
+  "ranking": [
+    {
+      "variant": "bare",
+      "score": -0.2492,
+      "overrides": 0
+    },
+    {
+      "variant": "bare_plus_sell_trend_rising",
+      "score": -0.2492,
+      "overrides": 1
+    },
+    {
+      "variant": "bare_plus_sell_price_above_ma50",
+      "score": -0.2492,
+      "overrides": 1
+    },
+    {
+      "variant": "bare_plus_sell_oversold",
+      "score": -0.2492,
+      "overrides": 1
+    },
+    {
+      "variant": "bare_plus_sell_macd_bullish",
+      "score": -0.2492,
+      "overrides": 1
+    },
+    {
+      "variant": "bare_plus_buy_trend_falling",
+      "score": -0.258,
+      "overrides": 1
+    },
+    {
+      "variant": "bare_plus_buy_overbought",
+      "score": -0.3971,
+      "overrides": 1
+    },
+    {
+      "variant": "full_minus_buy_macd_bearish",
+      "score": -0.4038,
+      "overrides": 6
+    },
+    {
+      "variant": "bare_plus_buy_macd_bearish",
+      "score": -0.6651,
+      "overrides": 1
+    },
+    {
+      "variant": "full_minus_buy_overbought",
+      "score": -0.6682,
+      "overrides": 6
+    },
+    {
+      "variant": "full_minus_sell_trend_rising",
+      "score": -0.7249,
+      "overrides": 6
+    },
+    {
+      "variant": "full_minus_sell_price_above_ma50",
+      "score": -0.7249,
+      "overrides": 6
+    },
+    {
+      "variant": "full_minus_sell_oversold",
+      "score": -0.7249,
+      "overrides": 6
+    },
+    {
+      "variant": "full_minus_sell_macd_bullish",
+      "score": -0.7249,
+      "overrides": 6
+    },
+    {
+      "variant": "full",
+      "score": -0.7249,
+      "overrides": 7
+    },
+    {
+      "variant": "full_minus_buy_trend_falling",
+      "score": -0.7277,
+      "overrides": 6
+    }
+  ]
+}
