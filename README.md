@@ -209,7 +209,7 @@ docker run --rm -e MONGODB_URI="<connection-string>" trading-simms python -m pip
 
 ## Deployment
 
-Version 1.0.0 (tag `v1.0.0`) runs on Azure Container Apps. The interactive docs are public:
+Version 1.1.0 runs on Azure Container Apps (1.0.0 is tagged `v1.0.0`). `/health` reports the deployed version. The interactive docs are public:
 
 **https://trading-simms.livelyflower-a997e4bc.canadacentral.azurecontainerapps.io/docs**
 
@@ -293,7 +293,7 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The do
      "average_exposure": 0.0088
    }
    ```
-   Returns are expressed as decimals (0.10 = 10%).
+   Returns are expressed as decimals (0.10 = 10%). The `sell_signals` and `hold_signals` counts were captured before the SELL overrides were removed in version 1.1.0, so some of those HOLD days would now count as SELL. Every other field is unaffected.
 
    **How the backtest trades.** It follows `/signal`'s advice the way you could in a real brokerage account:
    - **Long-only.** BUY holds a position sized exactly as `/signal`'s `decision` block (0–10% of the portfolio). SELL and HOLD both mean cash. Nothing is ever shorted.
@@ -320,14 +320,13 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The do
 
 If data is insufficient (fewer than 50 trading days) or features contain NaN values, the system falls back to HOLD with confidence 0.5.
 
-The base crossover signal is then refined by overrides. Each can only downgrade a signal to HOLD, never upgrade one:
+A BUY is then checked against three overrides. Each can only downgrade it to HOLD, never upgrade a signal:
 
-- A **SELL** is downgraded to **HOLD** if the 50-day trend slope is still rising (> 0.01) or price sits well above the MA50 (> 5%).
 - A **BUY** is downgraded to **HOLD** if the 50-day trend slope is falling hard (< -0.01).
 - A **BUY** is downgraded to **HOLD** if RSI is overbought (> 70).
-- A **SELL** is downgraded to **HOLD** if RSI is oversold (< 30).
 - A **BUY** is downgraded to **HOLD** if the MACD histogram is negative (momentum disagrees with the bullish crossover).
-- A **SELL** is downgraded to **HOLD** if the MACD histogram is positive (momentum disagrees with the bearish crossover).
+
+A **SELL** is never overridden. The system is long-only, so SELL and HOLD both mean cash, and turning one into the other cannot change a position. Until version 1.1.0, four overrides did exactly that. The [veto ablation study](research/RESEARCH.md) showed they never changed a position, a return or a risk figure, so they were removed (see [Retired reason codes](#retired-reason-codes)).
 
 RSI is a 14-day Relative Strength Index. `/signal` returns its raw value, or `null` when there is too little history to compute it. For the overrides above, an unavailable RSI is treated as a neutral 50 so it never forces an override — that default is internal to the override check and is not what the response reports.
 
@@ -342,20 +341,27 @@ Every `/signal` response carries a `reason`: a single machine-readable code for 
 | `ma_crossover_bullish` | BUY — 20-day MA above 50-day MA, no veto |
 | `ma_crossover_bearish` | SELL — 20-day MA below 50-day MA, no veto |
 | `no_ma_crossover` | HOLD — the moving averages coincide |
-| `sell_vetoed_trend_rising` | SELL vetoed — 50-day trend still rising (> 0.01) |
 | `buy_vetoed_trend_falling` | BUY vetoed — 50-day trend falling hard (< -0.01) |
-| `sell_vetoed_price_above_ma50` | SELL vetoed — price well above MA50 (> 5%) |
 | `buy_vetoed_overbought` | BUY vetoed — RSI overbought (> 70) |
-| `sell_vetoed_oversold` | SELL vetoed — RSI oversold (< 30) |
 | `buy_vetoed_macd_bearish` | BUY vetoed — MACD histogram negative |
-| `sell_vetoed_macd_bullish` | SELL vetoed — MACD histogram positive |
 | `insufficient_price_history` | HOLD — fewer than 50 trading days of prices |
 | `missing_feature_columns` | HOLD — a required feature column was absent |
 | `insufficient_feature_data` | HOLD — no row had every required feature present |
 | `invalid_feature_values` | HOLD — a required feature was null, or MA50 was zero |
 | `invalid_confidence` | HOLD — the computed confidence was not finite |
 
-The overrides are checked in the order listed under [Signal Logic](#signal-logic), and only the first one that matches can fire, so a `*_vetoed_*` code names the single veto responsible. Whenever a veto downgrades a crossover to HOLD, confidence is the HOLD floor of 0.5, not the score the rejected crossover would have earned.
+The overrides are checked in the order listed under [Signal Logic](#signal-logic), and only the first one that matches can fire, so a `buy_vetoed_*` code names the single veto responsible. Whenever a veto downgrades a BUY to HOLD, confidence is the HOLD floor of 0.5, not the score the rejected crossover would have earned. A SELL reports the crossover's own confidence.
+
+#### Retired reason codes
+
+These codes were removed in version 1.1.0 (2026-11-22), along with the SELL overrides that produced them. `/signal` no longer returns them. Ledger entries recorded before then still carry them, because a recorded day is never recomputed. Each one marks a bearish crossover reported as HOLD at confidence 0.5. That day was in cash, exactly as a SELL is now.
+
+| `reason` | Meaning |
+|----------|---------|
+| `sell_vetoed_trend_rising` | SELL reported as HOLD — 50-day trend still rising (> 0.01) |
+| `sell_vetoed_price_above_ma50` | SELL reported as HOLD — price well above MA50 (> 5%) |
+| `sell_vetoed_oversold` | SELL reported as HOLD — RSI oversold (< 30) |
+| `sell_vetoed_macd_bullish` | SELL reported as HOLD — MACD histogram positive |
 
 ### Confidence
 
@@ -370,7 +376,7 @@ No gap gives 0.5. A gap three daily standard deviations wide, or wider, gives th
 
 The constant 3 was chosen on the same five-year window of SPY, AAPL, MSFT and NVDA that the [Backtest Results](#backtest-results) report. On that window the median BUY day has a strength near 1.7 and the top quarter sits above 3, so a typical BUY lands near 0.75 and a clearly established trend at the cap. It is a scale choice rather than a fitted edge (2 and 4 give the same qualitative results), but it was not chosen out of sample.
 
-Confidence describes the crossover. When a veto downgrades that crossover to HOLD, reporting the crossover's score would be misleading — a zero-position HOLD at 0.95 — so the response instead reports the HOLD floor of 0.5 and the `reason` field names the veto that fired (see [Reason codes](#reason-codes)).
+Confidence describes the crossover. When a veto downgrades a BUY to HOLD, reporting the crossover's score would be misleading — a zero-position HOLD at 0.95 — so the response instead reports the HOLD floor of 0.5 and the `reason` field names the veto that fired (see [Reason codes](#reason-codes)). A SELL keeps the crossover's score. It says how decisive the bearish crossover is, and the position is cash whatever the score.
 
 ### Position Sizing
 
@@ -394,11 +400,13 @@ Generated by `python scripts/backtest_report.py` on 2026-11-12. Long-only backte
 | MSFT   | -0.72%          | +73.53%             | -0.31  | -1.19%       | 0.56%         | 147    | 127 / 141 / 931        |
 | NVDA   | +0.39%          | +561.21%            | 0.07   | -2.12%       | 0.82%         | 174    | 171 / 146 / 882        |
 
-**What the numbers say.** The strategy is in cash on 83 to 89% of days. The seven overrides in [Signal Logic](#signal-logic) (its first bullet covers two) downgrade most crossovers, so HOLD fires on 73 to 78% of days and SELL (also cash, since the system is long-only) on most of the rest. BUY fires on only 11 to 17% of days. On those days the position averages 5 to 6% of the portfolio, so average exposure over the whole period is about 1% and the strategy's returns are necessarily small: between -0.72% and +0.39%, against buy-and-hold gains of +73.53% to +561.21%.
+The BUY / SELL / HOLD days were counted before the four SELL overrides were removed in version 1.1.0, so some of those HOLD days would now count as SELL. Every other column is unaffected: the removal changes no position.
+
+**What the numbers say.** The strategy is in cash on 83 to 89% of days. When the table was generated, seven overrides downgraded most crossovers, so HOLD fired on 73 to 78% of days and SELL (also cash, since the system is long-only) on most of the rest. BUY fires on only 11 to 17% of days. On those days the position averages 5 to 6% of the portfolio, so average exposure over the whole period is about 1% and the strategy's returns are necessarily small: between -0.72% and +0.39%, against buy-and-hold gains of +73.53% to +561.21%.
 
 The small exposure is the consequence of a cautious rule set, not the cause of the underperformance. An earlier version of this backtest (same signals, 100% invested on BUY, 100% short on SELL, no costs, same-day fills) also trailed buy-and-hold on all four symbols: SPY +11.7% vs +77.3%, AAPL +22.0% vs +105.8%, MSFT -35.0% vs +79.0%, NVDA -0.3% vs +720.7%. Over this period a filtered 20/50-day crossover has no edge over simply holding these symbols, all of which trended strongly upward.
 
-[research/RESEARCH.md](research/RESEARCH.md) tests that claim more carefully, in a study pre-registered before any data was downloaded. It covers fifteen years of ten large caps, tunes on 2012 to 2021, and checks the one chosen variant once on 2021 to 2026. No variant of the strategy beats buy-and-hold's Sharpe ratio in either window. The study also finds that the four SELL overrides never change a position, because SELL and HOLD both mean cash, and that the MACD and overbought vetoes lower the Sharpe ratio rather than raise it.
+[research/RESEARCH.md](research/RESEARCH.md) tests that claim more carefully, in a study pre-registered before any data was downloaded. It covers fifteen years of ten large caps, tunes on 2012 to 2021, and checks the one chosen variant once on 2021 to 2026. No variant of the strategy beats buy-and-hold's Sharpe ratio in either window. The study also found that the four SELL overrides never changed a position, because SELL and HOLD both mean cash (they have since been removed), and that the MACD and overbought vetoes lower the Sharpe ratio rather than raise it.
 
 What the backtest does show is that the pipeline behaves as documented: positions follow confidence, every change in position pays a cost, and the strategy and its benchmark are measured over the same days. Past results do not guarantee future performance.
 
@@ -586,6 +594,8 @@ The fields are the stored document's, with the `day` block lifted into each entr
   ]
 }
 ```
+
+Days recorded before version 1.1.0 keep the labels the signal gave them then. A bearish crossover that one of the [retired SELL overrides](#retired-reason-codes) caught is a HOLD with a `sell_vetoed_*` reason at confidence 0.5, where a later day reads SELL with `ma_crossover_bearish`. Both held cash, so their money figures are computed the same way.
 
 The server reads the ledger from the database `MONGODB_URI` points to, so set it alongside `API_KEY` before starting uvicorn or the container. The API only reads, so its database user needs only the `read` role. One MongoDB client is built per server process and reused by every request.
 

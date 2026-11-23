@@ -382,3 +382,27 @@ a product decision, not something this study settles.
 - **Untested variants.** Only the sizing `/signal` uses (0 to 10% by
   confidence) was tested. Unit-sized or other variants were not
   pre-registered and were not run.
+
+## Afterwards (2026-11-22)
+
+Following this study, the four SELL overrides were removed from
+`services/signal.py` in commit 1082b85, released as version 1.1.0. The
+two BUY vetoes this study found harmful were left in place; changing them
+is a separate decision.
+
+`tests/test_sell_override_removal.py` shows that the removal changes no
+position, no backtest figure and no ledger money value. Only SELL days'
+labels change: they now read SELL with `ma_crossover_bearish` instead of
+HOLD with a `sell_vetoed_*` code.
+
+`research/verify_engine.py` checks the research engine against production
+as it was when this study ran, at 5569f41. Run against the code after the
+removal, it reports 5,979 mismatches on the tuning window. Every one is a
+label:
+- 5,959 days where the engine's full strategy says HOLD and production
+  says SELL, with the same position;
+- the 20 SELL and HOLD day counts (one of each per symbol).
+
+No position, return, Sharpe ratio, drawdown, exposure, trade count or
+cost differs. To rerun the original check, check out 5569f41. Nothing
+else in this file was changed.

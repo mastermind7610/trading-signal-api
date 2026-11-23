@@ -232,7 +232,6 @@ def generate_signal_from_features(
         )
 
     trend_slope = _safe_float(latest.get("trend_slope")) or 0.0
-    price_position = _safe_float(latest.get("price_position")) or 0.0
 
     # The raw RSI is reported on the response; null when history is too thin.
     # The overrides read a neutral 50 in that case so a missing RSI never
@@ -258,42 +257,27 @@ def generate_signal_from_features(
     # comparing against this, so the HOLD confidence can be reset below.
     crossover_signal = signal
 
-    # Override: don't SELL if trend is still rising
-    if signal == "SELL" and trend_slope > 0.01:
-        signal = "HOLD"
-        reason = "sell_vetoed_trend_rising"
+    # The overrides only ever downgrade a BUY. A SELL is never overridden: the
+    # strategy is long-only, so SELL and HOLD both mean cash, and turning one
+    # into the other cannot change a position. The four SELL overrides that
+    # used to sit here were removed for that reason (see research/RESEARCH.md
+    # and tests/test_sell_override_removal.py).
 
     # Override: don't BUY if trend is falling hard
     if signal == "BUY" and trend_slope < -0.01:
         signal = "HOLD"
         reason = "buy_vetoed_trend_falling"
 
-    # Override: don't SELL if price is well above MA50 (strong uptrend)
-    if signal == "SELL" and price_position > 0.05:
-        signal = "HOLD"
-        reason = "sell_vetoed_price_above_ma50"
-
     # Override: don't BUY if overbought (RSI > 70)
     if signal == "BUY" and rsi_for_override > 70:
         signal = "HOLD"
         reason = "buy_vetoed_overbought"
-
-    # Override: don't SELL if oversold (RSI < 30)
-    if signal == "SELL" and rsi_for_override < 30:
-        signal = "HOLD"
-        reason = "sell_vetoed_oversold"
 
     # Override: don't BUY if MACD momentum disagrees with the crossover
     # (negative histogram = MACD line below its signal line = bearish momentum)
     if signal == "BUY" and macd_histogram < 0:
         signal = "HOLD"
         reason = "buy_vetoed_macd_bearish"
-
-    # Override: don't SELL if MACD momentum disagrees with the crossover
-    # (positive histogram = MACD line above its signal line = bullish momentum)
-    if signal == "SELL" and macd_histogram > 0:
-        signal = "HOLD"
-        reason = "sell_vetoed_macd_bullish"
 
     confidence = compute_confidence(ma_20, ma_50, rolling_volatility)
 
@@ -310,7 +294,7 @@ def generate_signal_from_features(
             log_decision=log_decision,
         )
 
-    # A veto downgraded a crossover to HOLD: confidence measured that rejected
+    # A veto downgraded a BUY to HOLD: confidence measured that rejected
     # crossover, so report the HOLD floor instead of a misleadingly high number.
     if signal == "HOLD" and crossover_signal != "HOLD":
         confidence = DEFAULT_HOLD_CONFIDENCE
