@@ -209,7 +209,7 @@ docker run --rm -e MONGODB_URI="<connection-string>" trading-simms python -m pip
 
 ## Deployment
 
-Version 1.0.0 (tag `v1.0.0`) runs on Azure Container Apps. The interactive docs are public:
+Version 1.1.0 runs on Azure Container Apps (1.0.0 is tagged `v1.0.0`). `/health` reports the deployed version. The interactive docs are public:
 
 **https://trading-simms.livelyflower-a997e4bc.canadacentral.azurecontainerapps.io/docs**
 

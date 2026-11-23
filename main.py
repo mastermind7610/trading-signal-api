@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Single source of the API version: shown in the OpenAPI docs and returned by
 # /health, so a deploy can be checked with one call.
-API_VERSION = "1.0.0"
+API_VERSION = "1.1.0"
 
 # Sent with every 503 so well-behaved clients know when to retry.
 RETRY_AFTER_SECONDS = 30
