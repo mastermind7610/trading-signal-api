@@ -39,10 +39,9 @@ def _rising_series(length=89, start=100.0):
 
 
 def _falling_series(length=89, start=250.0):
-    # Net-downward sawtooth (-2 / +1) so the RSI stays moderate (~33) and does
-    # not trip the oversold override. An odd length ends on a down-tick so the
-    # MACD histogram is negative, i.e. momentum confirms the downtrend and the
-    # SELL override does not fire.
+    # Net-downward sawtooth (-2 / +1), the mirror of _rising_series: a
+    # bearish crossover with a moderate RSI (~33). No override applies to a
+    # SELL, so the shape only matters for symmetry with the BUY case.
     prices = []
     value = start
     for i in range(length):
@@ -278,8 +277,9 @@ def test_generate_signal_rsi_overbought_downgrades_buy(monkeypatch):
     assert result["signal"] == "HOLD"
 
 
-def test_generate_signal_rsi_oversold_downgrades_sell(monkeypatch):
-    # ma_20 < ma_50 would be SELL, but RSI < 30 forces HOLD.
+def test_generate_signal_rsi_oversold_keeps_sell(monkeypatch):
+    # ma_20 < ma_50 is a SELL. RSI < 30 used to force HOLD; a SELL is no
+    # longer overridden, since SELL and HOLD both mean cash.
     fake_features = pd.DataFrame(
         {
             "Close": [110.0],
@@ -295,7 +295,7 @@ def test_generate_signal_rsi_oversold_downgrades_sell(monkeypatch):
 
     result = signal_service.generate_signal("msft")
 
-    assert result["signal"] == "HOLD"
+    assert result["signal"] == "SELL"
 
 
 def test_generate_signal_macd_disagreement_downgrades_buy(monkeypatch):
@@ -320,9 +320,9 @@ def test_generate_signal_macd_disagreement_downgrades_buy(monkeypatch):
     assert result["signal"] == "HOLD"
 
 
-def test_generate_signal_macd_disagreement_downgrades_sell(monkeypatch):
-    # ma_20 < ma_50 would be SELL, but a positive MACD histogram (bullish
-    # momentum) disagrees with the crossover and forces HOLD.
+def test_generate_signal_macd_disagreement_keeps_sell(monkeypatch):
+    # ma_20 < ma_50 is a SELL. A positive MACD histogram (bullish momentum)
+    # used to force HOLD; a SELL is no longer overridden.
     fake_features = pd.DataFrame(
         {
             "Close": [110.0],
@@ -339,7 +339,7 @@ def test_generate_signal_macd_disagreement_downgrades_sell(monkeypatch):
 
     result = signal_service.generate_signal("msft")
 
-    assert result["signal"] == "HOLD"
+    assert result["signal"] == "SELL"
 
 
 def test_generate_signal_macd_agreement_keeps_buy(monkeypatch):
@@ -433,8 +433,10 @@ def test_generate_signal_overbought_veto_names_reason_and_resets_confidence(monk
     assert result["confidence"] == 0.5
 
 
-def test_generate_signal_oversold_veto_names_reason_and_resets_confidence(monkeypatch):
-    # The mirror case: a wide bearish crossover vetoed by RSI < 30.
+def test_generate_signal_oversold_sell_keeps_its_reason_and_confidence(monkeypatch):
+    # A wide bearish crossover with RSI < 30 used to be vetoed to HOLD at the
+    # 0.5 floor. It is now a SELL with the crossover's own reason and score:
+    # a 4% gap at 1% volatility is past full strength, so 0.95.
     fake_features = pd.DataFrame(
         {
             "Close": [96.0],
@@ -451,9 +453,44 @@ def test_generate_signal_oversold_veto_names_reason_and_resets_confidence(monkey
 
     result = signal_service.generate_signal("aapl")
 
-    assert result["signal"] == "HOLD"
-    assert result["reason"] == "sell_vetoed_oversold"
-    assert result["confidence"] == 0.5
+    assert result["signal"] == "SELL"
+    assert result["reason"] == "ma_crossover_bearish"
+    assert result["confidence"] == 0.95
+    assert result["decision"]["position_pct"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "column, value",
+    [
+        ("trend_slope", 0.02),  # MA50 still rising
+        ("price_position", 0.06),  # price well above MA50
+        ("rsi", 25.0),  # oversold
+        ("macd_histogram", 0.5),  # bullish momentum
+    ],
+)
+def test_generate_signal_never_overrides_a_sell(monkeypatch, column, value):
+    # Each condition that used to turn a SELL into HOLD now leaves it a SELL,
+    # in cash, with the crossover's reason and confidence: a 2% gap at 1%
+    # volatility is a strength of 2, so 0.5 + 0.45 * 2/3 = 0.8.
+    row = {
+        "Close": 98.0,
+        "ma_20": 98.0,
+        "ma_50": 100.0,
+        "rolling_volatility": 0.01,
+        "trend_slope": 0.0,
+        "price_position": -0.02,
+        "rsi": 50.0,
+        "macd_histogram": -0.5,
+    }
+    row[column] = value
+    _mock_features(monkeypatch, pd.DataFrame({key: [item] for key, item in row.items()}))
+
+    result = signal_service.generate_signal("msft")
+
+    assert result["signal"] == "SELL"
+    assert result["reason"] == "ma_crossover_bearish"
+    assert result["confidence"] == 0.8
+    assert result["decision"] == {"position_pct": 0.0, "position_value": 0.0}
 
 
 def test_post_signal_response_includes_reason_field(monkeypatch):

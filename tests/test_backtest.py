@@ -55,8 +55,8 @@ def _rising_series(length=90, start=100.0):
 
 
 def _falling_series(length=90, start=250.0):
-    # Net-downward sawtooth (-2 / +1) keeps RSI moderate so the oversold
-    # override does not suppress every SELL.
+    # Net-downward sawtooth (-2 / +1), the mirror of _rising_series. No
+    # override applies to a SELL, so every bearish crossover day is a SELL.
     prices = []
     value = start
     for i in range(length):
@@ -133,7 +133,8 @@ def test_run_backtest_counts_sell_signals():
     assert result["symbol"] == "MSFT"
     assert result["buy_signals"] == 0
     assert result["sell_signals"] > 0
-    assert result["hold_signals"] > 0
+    # No override applies to a SELL, so a falling series has no HOLD days.
+    assert result["hold_signals"] == 0
     assert result["buy_and_hold_return"] < 0
     # Long-only: SELL means cash, so with no BUYs the strategy never holds
     # stock and neither gains nor loses.
