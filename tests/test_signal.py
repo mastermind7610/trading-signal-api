@@ -519,6 +519,10 @@ def test_generate_signal_hold_path(monkeypatch):
         "signal_line": 0.0,
         "histogram": 0.0,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. The 20-day and 50-day averages are equal, so there is no "
+            "crossover. No position."
+        ),
     }
 
 
@@ -535,6 +539,10 @@ def test_generate_signal_insufficient_data_fallback(monkeypatch):
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. There are only 3 daily bars of price history, and the signal "
+            "needs at least 50. No position."
+        ),
     }
 
 
@@ -551,6 +559,11 @@ def test_generate_signal_nan_feature_fallback(monkeypatch):
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. No day has every indicator the signal needs yet: the 50-day "
+            "average and its 5-day slope need a longer run of complete prices. "
+            "No position."
+        ),
     }
 
 
@@ -647,6 +660,60 @@ def test_confidence_zero_volatility_without_gap_is_floor():
     assert signal_service.compute_confidence(100.0, 100.0, 0.0) == 0.5
 
 
+def test_crossover_strength_is_the_gap_in_daily_volatility_units():
+    # A 2% gap at 1% daily volatility is two units, on either side of MA50.
+    assert signal_service.crossover_strength(102.0, 100.0, 0.01) == pytest.approx(2.0)
+    assert signal_service.crossover_strength(98.0, 100.0, 0.01) == pytest.approx(2.0)
+
+
+def test_crossover_strength_with_zero_volatility():
+    assert signal_service.crossover_strength(101.0, 100.0, 0.0) == float("inf")
+    assert signal_service.crossover_strength(100.0, 100.0, 0.0) == 0.0
+
+
+def test_buy_veto_thresholds_are_the_documented_ones():
+    # The README's Signal Logic section quotes these numbers.
+    assert signal_service.TREND_FALLING_SLOPE == -0.01
+    assert signal_service.OVERBOUGHT_RSI == 70.0
+
+
+def _complete_bullish_row(**values):
+    # One row with every required feature: a bullish crossover that no veto
+    # blocks unless a value below says otherwise.
+    row = {
+        "Close": 105.0,
+        "ma_20": 102.0,
+        "ma_50": 100.0,
+        "rolling_volatility": 0.01,
+        "trend_slope": 0.0,
+        "price_position": 0.05,
+        "rsi": 50.0,
+        "macd_histogram": 0.5,
+    }
+    row.update(values)
+    return pd.DataFrame([row])
+
+
+def test_buy_vetoes_read_the_named_thresholds(monkeypatch):
+    # Moving a constant moves its check, so the constants are the only copy
+    # of these thresholds.
+    features = _complete_bullish_row(trend_slope=-0.005, rsi=65.0)
+
+    def reason():
+        return signal_service.generate_signal_from_features(
+            "TEST", features, log_decision=False
+        )["reason"]
+
+    assert reason() == "ma_crossover_bullish"
+
+    monkeypatch.setattr(signal_service, "TREND_FALLING_SLOPE", -0.001)
+    assert reason() == "buy_vetoed_trend_falling"
+
+    monkeypatch.setattr(signal_service, "TREND_FALLING_SLOPE", -0.01)
+    monkeypatch.setattr(signal_service, "OVERBOUGHT_RSI", 60.0)
+    assert reason() == "buy_vetoed_overbought"
+
+
 def test_generate_signal_invalid_ma_50_fallback(monkeypatch):
     price_data = _price_data(list(range(100, 160)))
     fake_features = pd.DataFrame(
@@ -679,4 +746,8 @@ def test_generate_signal_invalid_ma_50_fallback(monkeypatch):
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. The indicators could not be computed reliably from this price "
+            "data, so no crossover was read. No position."
+        ),
     }

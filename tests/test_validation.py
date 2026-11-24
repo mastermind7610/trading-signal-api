@@ -24,6 +24,7 @@ def signal_calls(monkeypatch):
             "signal": "HOLD",
             "confidence": 0.5,
             "reason": "no_ma_crossover",
+            "explanation": "HOLD. No crossover.",
             "decision": {"position_pct": 0.0, "position_value": 0.0},
         }
 

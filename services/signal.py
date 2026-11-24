@@ -7,6 +7,7 @@ import pandas as pd
 
 from services.data import get_price_data
 from services.decisions import CONFIDENCE_MAX, CONFIDENCE_MIN, make_decision
+from services.explanations import SignalFacts, explain_signal
 from services.features import build_features
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,13 @@ REQUIRED_FEATURE_COLUMNS = [
 # top quarter above 3, so 3 maps a typical BUY to about 0.75 and a clearly
 # established trend to the cap.
 FULL_CONFIDENCE_STRENGTH = 3.0
+# Thresholds of the BUY vetoes, named so that anything describing a signal
+# quotes the numbers the checks themselves use.
+# A BUY is held back when the 50-day average changed by less than this
+# fraction over the last 5 days (it fell by more than 1%).
+TREND_FALLING_SLOPE = -0.01
+# A BUY is held back when the 14-day RSI is above this (overbought).
+OVERBOUGHT_RSI = 70.0
 
 
 def _safe_float(value: Any) -> float | None:
@@ -67,28 +75,38 @@ def _latest_complete_row(features: pd.DataFrame) -> pd.Series | None:
     return complete.iloc[-1]
 
 
-def compute_confidence(ma_20: float, ma_50: float, rolling_volatility: float) -> float:
-    """Confidence in a crossover, in [CONFIDENCE_MIN, CONFIDENCE_MAX].
+def crossover_strength(ma_20: float, ma_50: float, rolling_volatility: float) -> float:
+    """How decisive a crossover is: the gap between the moving averages, as a
+    fraction of MA50, in units of daily volatility.
 
-    The gap between the moving averages is measured in units of daily
-    volatility, so a 2% gap counts for a lot when prices move 0.5% a day and
-    for little when they move 3% a day. Confidence rises linearly with that
-    ratio, from CONFIDENCE_MIN at no gap to CONFIDENCE_MAX at
-    FULL_CONFIDENCE_STRENGTH, and is capped there. Because the ratio is
-    scale-free, the same confidence means the same thing on a calm index
-    fund and a volatile single stock.
-
-    Callers must guard ma_50 == 0. Zero volatility with a non-zero gap is a
-    perfectly steady trend and earns CONFIDENCE_MAX.
+    A 2% gap at 1% daily volatility is a strength of 2. Zero volatility with
+    a non-zero gap is a perfectly steady trend, so infinitely strong; zero
+    volatility with no gap is 0. Callers must guard ma_50 == 0.
     """
     spread = abs(ma_20 - ma_50) / abs(ma_50)
 
     if rolling_volatility > 0:
-        strength = spread / rolling_volatility
-    elif spread > 0:
-        strength = math.inf
-    else:
-        strength = 0.0
+        return spread / rolling_volatility
+    if spread > 0:
+        return math.inf
+    return 0.0
+
+
+def compute_confidence(ma_20: float, ma_50: float, rolling_volatility: float) -> float:
+    """Confidence in a crossover, in [CONFIDENCE_MIN, CONFIDENCE_MAX].
+
+    The gap between the moving averages is measured in units of daily
+    volatility (crossover_strength), so a 2% gap counts for a lot when
+    prices move 0.5% a day and for little when they move 3% a day.
+    Confidence rises linearly with that ratio, from CONFIDENCE_MIN at no gap
+    to CONFIDENCE_MAX at FULL_CONFIDENCE_STRENGTH, and is capped there.
+    Because the ratio is scale-free, the same confidence means the same
+    thing on a calm index fund and a volatile single stock.
+
+    Callers must guard ma_50 == 0. Zero volatility with a non-zero gap is a
+    perfectly steady trend and earns CONFIDENCE_MAX.
+    """
+    strength = crossover_strength(ma_20, ma_50, rolling_volatility)
 
     # Explicit comparison rather than min() so a NaN input propagates to the
     # finiteness check in generate_signal_from_features instead of silently
@@ -264,12 +282,12 @@ def generate_signal_from_features(
     # and tests/test_sell_override_removal.py).
 
     # Override: don't BUY if trend is falling hard
-    if signal == "BUY" and trend_slope < -0.01:
+    if signal == "BUY" and trend_slope < TREND_FALLING_SLOPE:
         signal = "HOLD"
         reason = "buy_vetoed_trend_falling"
 
-    # Override: don't BUY if overbought (RSI > 70)
-    if signal == "BUY" and rsi_for_override > 70:
+    # Override: don't BUY if overbought (RSI above OVERBOUGHT_RSI)
+    if signal == "BUY" and rsi_for_override > OVERBOUGHT_RSI:
         signal = "HOLD"
         reason = "buy_vetoed_overbought"
 
@@ -321,10 +339,59 @@ def generate_signal_from_features(
     }
 
 
+def _explained_row(features: pd.DataFrame) -> pd.Series | None:
+    """The row generate_signal_from_features read its indicators from.
+
+    Found the same way that function finds it. None when a required column
+    is missing, because that function then reads no row at all.
+    """
+    if any(column not in features.columns for column in REQUIRED_FEATURE_COLUMNS):
+        return None
+
+    return _latest_complete_row(features)
+
+
+def _signal_facts(row: pd.Series | None, bars: int) -> SignalFacts:
+    """The numbers and thresholds a signal was computed from, for its
+    explanation. `row` is the row the signal read, or None if it read none.
+    """
+    limits = {
+        "bars": bars,
+        "min_bars": MIN_REQUIRED_ROWS,
+        "trend_falling_slope": TREND_FALLING_SLOPE,
+        "overbought_rsi": OVERBOUGHT_RSI,
+        "full_confidence_strength": FULL_CONFIDENCE_STRENGTH,
+    }
+
+    if row is None:
+        return SignalFacts(**limits)
+
+    ma_20 = _safe_float(row.get("ma_20"))
+    ma_50 = _safe_float(row.get("ma_50"))
+    rolling_volatility = _safe_float(row.get("rolling_volatility"))
+
+    gap = strength = None
+    if ma_20 is not None and ma_50 is not None and rolling_volatility is not None and ma_50 != 0:
+        gap = (ma_20 - ma_50) / ma_50
+        strength = crossover_strength(ma_20, ma_50, rolling_volatility)
+
+    return SignalFacts(
+        **limits,
+        as_of=row.name.date() if isinstance(row.name, pd.Timestamp) else None,
+        gap=gap,
+        strength=strength,
+        rolling_volatility=rolling_volatility,
+        trend_slope=_safe_float(row.get("trend_slope")),
+        rsi=_safe_float(row.get("rsi")),
+        macd_histogram=_safe_float(row.get("macd_histogram")),
+    )
+
+
 def generate_signal(symbol: str, portfolio_value: float = 10000) -> dict:
     cleaned_symbol = symbol.strip().upper()
 
     price_data = get_price_data(cleaned_symbol)
+    explained_row = None
 
     if len(price_data) < MIN_REQUIRED_ROWS:
         latest_close = (
@@ -344,6 +411,16 @@ def generate_signal(symbol: str, portfolio_value: float = 10000) -> dict:
             symbol=cleaned_symbol,
             features=features,
         )
+        explained_row = _explained_row(features)
 
     result["decision"] = make_decision(result["signal"], result["confidence"], portfolio_value)
+    # Written last, from the decided signal and the row that decided it, so
+    # the text describes the response it is part of.
+    result["explanation"] = explain_signal(
+        result["signal"],
+        result["reason"],
+        result["confidence"],
+        result["decision"]["position_pct"],
+        _signal_facts(explained_row, len(price_data)),
+    )
     return result

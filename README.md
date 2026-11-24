@@ -31,6 +31,7 @@ services/
     features.py          — computes daily returns, moving averages, volatility, trend slope, price position, RSI, MACD
     signal.py            — generates BUY/SELL/HOLD signal with confidence score
     decisions.py         — converts a signal + confidence into a position-sizing decision
+    explanations.py      — turns the numbers a signal was decided on into a plain-English explanation
     backtest.py          — walk-forward, long-only backtest with next-day fills and trading costs
 pipeline/
     ledger.py            — one day of paper-trading accounting, by the backtest's rules (no I/O)
@@ -40,6 +41,7 @@ pipeline/
     cli.py               — `python -m pipeline SYMBOL ...`: fetches prices and runs the daily run
 tests/
     test_signal.py       — unit tests for signal generation (no live data)
+    test_explanations.py — the /signal explanation: wording per reason code, and that it quotes the decision's own values
     test_decisions.py    — unit tests for position-sizing decisions
     test_backtest.py     — unit tests for backtest engine (no live data)
     test_features.py     — unit tests for feature calculations
@@ -72,7 +74,7 @@ Dockerfile               — production image: runtime deps only, explicit copie
 
 **Data flow:**
 
-- `/signal`: `routes/signal` → `services/data` → `services/features` → `services/signal` → `services/decisions`
+- `/signal`: `routes/signal` → `services/data` → `services/features` → `services/signal` → `services/decisions` → `services/explanations`
 - `/backtest`: `routes/backtest` → `services/data` → `services/backtest` (which calls `services/features`, `services/signal` and `services/decisions` internally)
 - `/ledger/{symbol}`: `routes/ledger` → `pipeline/mongo_repository` (written by `python -m pipeline`, never by the API)
 
@@ -112,7 +114,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 259 tests should pass, and 10 more are reported as skipped. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 292 tests should pass, and 10 more are reported as skipped. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 The 10 skipped tests check the ledger's MongoDB storage against a real database, so they run only when `MONGODB_URI` is set: see [Testing the MongoDB storage](#testing-the-mongodb-storage).
 
@@ -209,7 +211,7 @@ docker run --rm -e MONGODB_URI="<connection-string>" trading-simms python -m pip
 
 ## Deployment
 
-Version 1.1.0 runs on Azure Container Apps (1.0.0 is tagged `v1.0.0`). `/health` reports the deployed version. The interactive docs are public:
+Version 1.2.0 runs on Azure Container Apps (1.0.0 is tagged `v1.0.0`). `/health` reports the deployed version. The interactive docs are public:
 
 **https://trading-simms.livelyflower-a997e4bc.canadacentral.azurecontainerapps.io/docs**
 
@@ -248,24 +250,25 @@ Start the server, then open `http://127.0.0.1:8000/docs` in your browser. The do
    { "symbol": "AAPL", "portfolio_value": 10000 }
    ```
 3. Click **Execute**
-4. Example response, captured 2026-11-12 (live values change daily):
+4. Example response, captured after the close on 2026-11-23 (live values change daily):
    ```json
    {
      "symbol": "AAPL",
-     "signal": "BUY",
-     "confidence": 0.68,
-     "reason": "ma_crossover_bullish",
-     "rsi": 57.34488840886845,
-     "macd_line": 3.7935404005651776,
-     "signal_line": 3.0583843631302483,
-     "histogram": 0.7351560374349293,
+     "signal": "HOLD",
+     "confidence": 0.5,
+     "reason": "buy_vetoed_macd_bearish",
+     "explanation": "HOLD as of 2026-11-23. The 20-day average is 1.7% above the 50-day, 0.9 times the typical daily move of 1.8%: a bullish crossover, but the BUY was held back because the MACD histogram is -0.74, below zero, so momentum disagrees with the crossover. No position.",
      "decision": {
-       "position_pct": 0.04,
-       "position_value": 400.0
-     }
+       "position_pct": 0.0,
+       "position_value": 0.0
+     },
+     "rsi": 63.303226203124616,
+     "macd_line": 2.5499793263517176,
+     "signal_line": 3.2916402727742957,
+     "histogram": -0.7416609464225781
    }
    ```
-   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95 and measures how decisive the moving-average crossover is (see [Signal Logic](#signal-logic)). `reason` is a machine-readable code for how the signal was reached — the crossover basis, the veto that forced HOLD, or the fallback that did (see [Reason codes](#reason-codes)). The `decision` block sizes a position from the confidence score: `position_pct` is the fraction of the portfolio to allocate (capped at 10%), and `position_value` is that fraction applied to `portfolio_value`. `rsi` is the latest 14-day Relative Strength Index (0–100). `macd_line`, `signal_line` and `histogram` are the latest MACD (12/26/9) values. `rsi` and the MACD fields are `null` when there is not enough history to compute them.
+   Signal will be BUY, SELL, or HOLD depending on current market data. Confidence is between 0.5 and 0.95 and measures how decisive the moving-average crossover is (see [Signal Logic](#signal-logic)). `reason` is a machine-readable code for how the signal was reached — the crossover basis, the veto that forced HOLD, or the fallback that did (see [Reason codes](#reason-codes)). `explanation` says the same thing in plain English, with the numbers it was decided on (see [Explanation](#explanation)). The `decision` block sizes a position from the confidence score: `position_pct` is the fraction of the portfolio to allocate (capped at 10%), and `position_value` is that fraction applied to `portfolio_value`. `rsi` is the latest 14-day Relative Strength Index (0–100). `macd_line`, `signal_line` and `histogram` are the latest MACD (12/26/9) values. `rsi` and the MACD fields are `null` when there is not enough history to compute them.
 
 ### Test /backtest
 
@@ -386,6 +389,21 @@ Confidence describes the crossover. When a veto downgrades a BUY to HOLD, report
 - **SELL / HOLD** → `position_pct = 0.0` (hold nothing, in cash). The system is long-only and never shorts.
 
 `position_value` is `position_pct × portfolio_value`, rounded to cents. Continuing the example above, confidence 0.80 rescales to 0.667, so `position_pct` is 0.0667 and `position_value` is $667.00 on a $10,000 portfolio.
+
+### Explanation
+
+Every `/signal` response carries an `explanation`: a few sentences on how the signal was reached, with the numbers it was decided on. `services/explanations.py` writes it from the same indicator row, the same thresholds and the same reason code the decision used, and evaluates no rule of its own, so it cannot disagree with the rest of the response. The same input always gives the same text; no language model is involved.
+
+- A **BUY** gives the crossover (how far the 20-day average is above the 50-day, in percent and in typical daily moves), its confidence, the values the trend, RSI and MACD checks passed with, and the suggested position.
+- A **HOLD from a veto** gives the crossover and names the one veto that held the BUY back, with its value and threshold. The checks run in order and the first match decides, as `reason` reports, so later checks are not described.
+- A **SELL** gives the crossover and its confidence, and says that SELL means holding cash.
+- A **fallback HOLD** says why no signal could be formed, for example too little price history.
+
+Continuing the example above, with illustrative trend, RSI and MACD values, a BUY reads:
+
+> BUY as of 2026-11-20. The 20-day average is 2.0% above the 50-day, 2.0 times the typical daily move of 1.0%: a bullish crossover, confidence 0.80 (3 times or more earns the 0.95 cap). The trend, RSI and MACD checks all passed: the 50-day average moved +0.3% over 5 days, RSI is 57.3 (limit 70), and the MACD histogram is +0.74. Suggested position: 6.7% of the portfolio, at most 10%.
+
+The date is that of the bar the indicators were read from. While a market is open, Yahoo Finance's latest bar is the day in progress, so a reading taken then can change before the close.
 
 ---
 
