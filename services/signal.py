@@ -7,6 +7,7 @@ import pandas as pd
 
 from services.data import get_price_data
 from services.decisions import CONFIDENCE_MAX, CONFIDENCE_MIN, make_decision
+from services.explanations import SignalFacts, explain_signal
 from services.features import build_features
 
 logger = logging.getLogger(__name__)
@@ -338,10 +339,59 @@ def generate_signal_from_features(
     }
 
 
+def _explained_row(features: pd.DataFrame) -> pd.Series | None:
+    """The row generate_signal_from_features read its indicators from.
+
+    Found the same way that function finds it. None when a required column
+    is missing, because that function then reads no row at all.
+    """
+    if any(column not in features.columns for column in REQUIRED_FEATURE_COLUMNS):
+        return None
+
+    return _latest_complete_row(features)
+
+
+def _signal_facts(row: pd.Series | None, bars: int) -> SignalFacts:
+    """The numbers and thresholds a signal was computed from, for its
+    explanation. `row` is the row the signal read, or None if it read none.
+    """
+    limits = {
+        "bars": bars,
+        "min_bars": MIN_REQUIRED_ROWS,
+        "trend_falling_slope": TREND_FALLING_SLOPE,
+        "overbought_rsi": OVERBOUGHT_RSI,
+        "full_confidence_strength": FULL_CONFIDENCE_STRENGTH,
+    }
+
+    if row is None:
+        return SignalFacts(**limits)
+
+    ma_20 = _safe_float(row.get("ma_20"))
+    ma_50 = _safe_float(row.get("ma_50"))
+    rolling_volatility = _safe_float(row.get("rolling_volatility"))
+
+    gap = strength = None
+    if ma_20 is not None and ma_50 is not None and rolling_volatility is not None and ma_50 != 0:
+        gap = (ma_20 - ma_50) / ma_50
+        strength = crossover_strength(ma_20, ma_50, rolling_volatility)
+
+    return SignalFacts(
+        **limits,
+        as_of=row.name.date() if isinstance(row.name, pd.Timestamp) else None,
+        gap=gap,
+        strength=strength,
+        rolling_volatility=rolling_volatility,
+        trend_slope=_safe_float(row.get("trend_slope")),
+        rsi=_safe_float(row.get("rsi")),
+        macd_histogram=_safe_float(row.get("macd_histogram")),
+    )
+
+
 def generate_signal(symbol: str, portfolio_value: float = 10000) -> dict:
     cleaned_symbol = symbol.strip().upper()
 
     price_data = get_price_data(cleaned_symbol)
+    explained_row = None
 
     if len(price_data) < MIN_REQUIRED_ROWS:
         latest_close = (
@@ -361,6 +411,16 @@ def generate_signal(symbol: str, portfolio_value: float = 10000) -> dict:
             symbol=cleaned_symbol,
             features=features,
         )
+        explained_row = _explained_row(features)
 
     result["decision"] = make_decision(result["signal"], result["confidence"], portfolio_value)
+    # Written last, from the decided signal and the row that decided it, so
+    # the text describes the response it is part of.
+    result["explanation"] = explain_signal(
+        result["signal"],
+        result["reason"],
+        result["confidence"],
+        result["decision"]["position_pct"],
+        _signal_facts(explained_row, len(price_data)),
+    )
     return result

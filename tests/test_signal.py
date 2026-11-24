@@ -519,6 +519,10 @@ def test_generate_signal_hold_path(monkeypatch):
         "signal_line": 0.0,
         "histogram": 0.0,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. The 20-day and 50-day averages are equal, so there is no "
+            "crossover. No position."
+        ),
     }
 
 
@@ -535,6 +539,10 @@ def test_generate_signal_insufficient_data_fallback(monkeypatch):
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. There are only 3 daily bars of price history, and the signal "
+            "needs at least 50. No position."
+        ),
     }
 
 
@@ -551,6 +559,11 @@ def test_generate_signal_nan_feature_fallback(monkeypatch):
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. No day has every indicator the signal needs yet: the 50-day "
+            "average and its 5-day slope need a longer run of complete prices. "
+            "No position."
+        ),
     }
 
 
@@ -733,4 +746,8 @@ def test_generate_signal_invalid_ma_50_fallback(monkeypatch):
         "rsi": None,
         **NO_MACD,
         "decision": {"position_pct": 0.0, "position_value": 0.0},
+        "explanation": (
+            "HOLD. The indicators could not be computed reliably from this price "
+            "data, so no crossover was read. No position."
+        ),
     }

@@ -34,14 +34,21 @@ class SignalResponse(BaseModel):
             "examples": [
                 {
                     "symbol": "AAPL",
-                    "signal": "BUY",
-                    "confidence": 0.68,
-                    "reason": "ma_crossover_bullish",
-                    "decision": {"position_pct": 0.04, "position_value": 400.0},
-                    "rsi": 57.34,
-                    "macd_line": 3.7935,
-                    "signal_line": 3.0584,
-                    "histogram": 0.7352,
+                    "signal": "HOLD",
+                    "confidence": 0.5,
+                    "reason": "buy_vetoed_macd_bearish",
+                    "explanation": (
+                        "HOLD as of 2026-11-23. The 20-day average is 1.7% above the "
+                        "50-day, 0.9 times the typical daily move of 1.8%: a bullish "
+                        "crossover, but the BUY was held back because the MACD "
+                        "histogram is -0.74, below zero, so momentum disagrees with "
+                        "the crossover. No position."
+                    ),
+                    "decision": {"position_pct": 0.0, "position_value": 0.0},
+                    "rsi": 63.3,
+                    "macd_line": 2.55,
+                    "signal_line": 3.2916,
+                    "histogram": -0.7417,
                 }
             ]
         }
@@ -57,6 +64,14 @@ class SignalResponse(BaseModel):
             "Machine-readable code for why this signal was produced: the "
             "crossover basis, the veto that downgraded it to HOLD, or the "
             "fallback that forced HOLD. See the README's Signal Logic section."
+        )
+    )
+    explanation: str = Field(
+        description=(
+            "Plain-English account of how the signal was reached, written from "
+            "the same indicator values and thresholds that decided it. Names the "
+            "one veto responsible when a BUY was held back. See the README's "
+            "Explanation section."
         )
     )
     decision: Decision
