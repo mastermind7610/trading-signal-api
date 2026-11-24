@@ -112,7 +112,7 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-All 259 tests should pass, and 10 more are reported as skipped. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
+All 273 tests should pass, and 10 more are reported as skipped. Use `python -m pytest`, not bare `pytest` — the `-m` form puts the project root on the import path. No internet connection is required — tests use fake DataFrames and monkeypatched dependencies.
 
 The 10 skipped tests check the ledger's MongoDB storage against a real database, so they run only when `MONGODB_URI` is set: see [Testing the MongoDB storage](#testing-the-mongodb-storage).
 
