@@ -62,7 +62,7 @@ class ErrorResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = Field(examples=["ok"])
-    version: str = Field(description="Deployed API version.", examples=["1.1.0"])
+    version: str = Field(description="Deployed API version.", examples=["1.2.0"])
 
 
 # Documented on every route that fetches prices. 422 is added by FastAPI.
